@@ -170,12 +170,16 @@ async function searchWithGoogle(query: string): Promise<SearchResult[]> {
   }
 
   const url = new URL("https://www.googleapis.com/customsearch/v1");
-  url.searchParams.set("key", apiKey);
   url.searchParams.set("cx", searchEngineId);
   url.searchParams.set("q", query);
   url.searchParams.set("num", "10");
 
-  const response = await fetch(url.toString(), { cache: "no-store" });
+  const response = await fetch(url.toString(), {
+    cache: "no-store",
+    headers: {
+      "X-Goog-Api-Key": apiKey
+    }
+  });
   if (!response.ok) {
     throw new Error(`Google Search API request failed (${response.status}).`);
   }
