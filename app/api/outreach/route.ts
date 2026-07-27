@@ -5,10 +5,20 @@ import {
   updateLeadStatus
 } from "@/lib/db";
 
+const LINKEDIN_MAX_CHARACTERS = 300;
+
+function normalizeLinkedInMessage(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= LINKEDIN_MAX_CHARACTERS) {
+    return compact;
+  }
+  return `${compact.slice(0, LINKEDIN_MAX_CHARACTERS - 1).trimEnd()}…`;
+}
+
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as {
     leadId?: string;
-    channel?: "email" | "linkedin" | "whatsapp";
+    channel?: "email" | "linkedin" | "loom" | "whatsapp";
   };
   if (!body.leadId) {
     return NextResponse.json({ error: "leadId is required." }, { status: 400 });
@@ -28,12 +38,16 @@ export async function POST(request: NextRequest) {
     }
 
     const channel = body.channel ?? "email";
-    const draft =
+    const linkedinMessage = normalizeLinkedInMessage(analysis.linkedinDm);
+    const emailBody = `${analysis.coldEmailBody}\n\n${analysis.sowClause}`;
+    const selectedDraft =
       channel === "linkedin"
-        ? analysis.linkedinDm
-        : channel === "whatsapp"
-          ? `${analysis.linkedinDm}\n\nReply 'send audit' and I'll share a short teardown video.`
-          : `${analysis.coldEmailBody}\n\n${analysis.sowClause}`;
+        ? linkedinMessage
+        : channel === "loom"
+          ? analysis.loomScript
+          : channel === "whatsapp"
+            ? `${linkedinMessage}\n\nReply "send audit" and I will share a short teardown video.`
+            : emailBody;
 
     await updateLeadStatus(lead.id, "outreach_sent");
 
@@ -43,8 +57,25 @@ export async function POST(request: NextRequest) {
           leadId: lead.id,
           channel,
           subject: analysis.coldEmailSubject,
-          body: draft,
-          generatedAt: analysis.generatedAt
+          body: selectedDraft,
+          generatedAt: analysis.generatedAt,
+          variants: {
+            emailCampaign: {
+              channel: "email",
+              subject: analysis.coldEmailSubject,
+              body: emailBody
+            },
+            linkedinConnection: {
+              channel: "linkedin",
+              body: linkedinMessage,
+              characterCount: linkedinMessage.length,
+              maxCharacters: LINKEDIN_MAX_CHARACTERS
+            },
+            loomTeardown: {
+              channel: "loom",
+              script: analysis.loomScript
+            }
+          }
         }
       },
       { status: 201 }
