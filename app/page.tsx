@@ -74,7 +74,6 @@ export default function HomePage() {
   });
 
   async function fetchDashboard(): Promise<void> {
-    setLoading(true);
     const response = await fetch("/api/dashboard");
     const payload = (await response.json()) as DashboardPayload;
     setDashboard(payload);
@@ -82,7 +81,26 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    void fetchDashboard();
+    let active = true;
+    fetch("/api/dashboard")
+      .then((response) => response.json())
+      .then((payload: DashboardPayload) => {
+        if (!active) {
+          return;
+        }
+        setDashboard(payload);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (active) {
+          setMessage("Unable to load dashboard data.");
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const leadsById = useMemo(
