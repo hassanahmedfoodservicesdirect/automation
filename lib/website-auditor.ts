@@ -2,8 +2,27 @@ import * as cheerio from "cheerio";
 import puppeteer, { KnownDevices } from "puppeteer";
 import { GeoSignals, SlowResource } from "@/lib/types";
 
+interface PageSpeedMetrics {
+  performanceScore: number | null;
+  lcpSec: number | null;
+  fidMs: number | null;
+  cls: number | null;
+  mobileReadinessScore: number | null;
+}
+
 export interface AuditComputation {
   websiteUrl: string;
+  pageTitle: string;
+  metaDescription: string;
+  h1Headings: string[];
+  h2Headings: string[];
+  condensedText: string;
+  tokenOptimizedAudit: boolean;
+  lighthousePerformanceScore: number | null;
+  lcpSec: number | null;
+  fidMs: number | null;
+  cls: number | null;
+  mobileReadinessScore: number | null;
   lcpMs: number | null;
   domSize: number;
   loadTimeMs: number | null;
@@ -19,91 +38,151 @@ export interface AuditComputation {
   rawDomExcerpt: string;
 }
 
-function boundedScore(value: number): number {
+function clamp(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function computePerformanceScore(metrics: {
-  lcpMs: number | null;
-  loadTimeMs: number | null;
-  domSize: number;
-  slowApiCount: number;
-}): number {
-  let score = 100;
-  if (metrics.lcpMs) {
-    score -= Math.max(0, (metrics.lcpMs - 2500) / 110);
-  }
-  if (metrics.loadTimeMs) {
-    score -= Math.max(0, (metrics.loadTimeMs - 3200) / 150);
-  }
-  score -= Math.max(0, (metrics.domSize - 1800) / 70);
-  score -= metrics.slowApiCount * 3.5;
-  return boundedScore(score);
+function dedupe(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }
 
-function computeGeoScore(signals: GeoSignals): number {
-  let score = 45;
-  if (signals.hasTitle) score += 10;
-  if (signals.hasMetaDescription) score += 10;
-  if (signals.hasSchemaMarkup) score += 17;
-  if (signals.hasFaqSignals) score += 8;
-  score += Math.min(10, signals.headingCount * 1.2);
-  score += Math.min(10, signals.internalLinks * 0.4);
-  return boundedScore(score);
+function cleanText(input: string): string {
+  return input.replace(/\s+/g, " ").trim();
+}
+
+function collectHeadings($: cheerio.CheerioAPI, selector: string, max = 6): string[] {
+  return dedupe(
+    $(selector)
+      .map((_, element) => cleanText($(element).text()))
+      .get()
+      .filter((value) => value.length > 0)
+      .slice(0, max)
+  );
+}
+
+function condensedMainText($: cheerio.CheerioAPI): string {
+  const candidates = [
+    cleanText($("main").text()),
+    cleanText($("article").text()),
+    cleanText($("body").text())
+  ].filter((value) => value.length > 0);
+
+  const best = candidates[0] ?? "";
+  return best.slice(0, 800);
+}
+
+function computeGeoScore(signals: GeoSignals, hasCondensedText: boolean): number {
+  let score = 40;
+  if (signals.hasTitle) score += 15;
+  if (signals.hasMetaDescription) score += 15;
+  if (signals.hasSchemaMarkup) score += 12;
+  if (signals.headingCount >= 2) score += 8;
+  if (signals.hasFaqSignals) score += 5;
+  if (signals.internalLinks >= 5) score += 5;
+  if (hasCondensedText) score += 5;
+  return clamp(score);
 }
 
 function computeUxScore(input: {
   mobileResponsive: boolean;
-  missingMetaCount: number;
-  legacyScriptCount: number;
-  domSize: number;
+  mobileReadinessScore: number | null;
+  h1Count: number;
+  h2Count: number;
 }): number {
-  let score = 88;
-  if (!input.mobileResponsive) score -= 18;
-  score -= input.missingMetaCount * 7;
-  score -= input.legacyScriptCount * 4;
-  score -= Math.max(0, (input.domSize - 2200) / 90);
-  return boundedScore(score);
+  let score = 72;
+  if (input.mobileResponsive) score += 8;
+  if (input.mobileReadinessScore !== null) {
+    score += Math.max(-18, Math.min(18, (input.mobileReadinessScore - 50) * 0.36));
+  }
+  if (input.h1Count >= 1) score += 6;
+  if (input.h2Count >= 2) score += 6;
+  return clamp(score);
 }
 
-function detectCriticalIssues(metrics: {
-  lcpMs: number | null;
-  domSize: number;
-  mobileResponsive: boolean;
-  hasSchemaMarkup: boolean;
-  slowApiCalls: SlowResource[];
+function deriveCriticalIssues(input: {
+  pageTitle: string;
+  metaDescription: string;
+  lcpSec: number | null;
+  fidMs: number | null;
+  cls: number | null;
+  performanceScore: number;
+  mobileReadinessScore: number | null;
 }): string[] {
   const issues: string[] = [];
-  if (metrics.lcpMs && metrics.lcpMs > 4000) {
-    issues.push(`LCP is ${Math.round(metrics.lcpMs)}ms, far above mobile threshold.`);
+  if (!input.pageTitle) issues.push("Missing page title reduces search and GEO relevance.");
+  if (!input.metaDescription) issues.push("Missing meta description weakens SERP and AI snippet context.");
+  if (input.lcpSec !== null && input.lcpSec > 3) {
+    issues.push(`LCP is ${input.lcpSec.toFixed(2)}s, causing delayed first-content engagement.`);
   }
-  if (metrics.domSize > 2500) {
-    issues.push(`DOM size (${metrics.domSize}) is excessive and likely hurting runtime performance.`);
+  if (input.fidMs !== null && input.fidMs > 200) {
+    issues.push(`FID is ${Math.round(input.fidMs)}ms, indicating slower interaction response.`);
   }
-  if (!metrics.mobileResponsive) {
-    issues.push("Viewport/mobile responsiveness signal is missing or weak.");
+  if (input.cls !== null && input.cls > 0.15) {
+    issues.push(`CLS is ${input.cls.toFixed(2)}, signaling visible layout instability.`);
   }
-  if (!metrics.hasSchemaMarkup) {
-    issues.push("Structured data is missing, reducing AI Overview / GEO visibility.");
+  if (input.performanceScore < 55) {
+    issues.push(`Performance score ${input.performanceScore}/100 suggests major speed debt.`);
   }
-  if (metrics.slowApiCalls.length > 0) {
-    issues.push(`${metrics.slowApiCalls.length} slow API/resource calls detected over 800ms.`);
+  if (input.mobileReadinessScore !== null && input.mobileReadinessScore < 70) {
+    issues.push("Mobile readiness is weak, likely reducing mobile conversion throughput.");
   }
-  return issues.slice(0, 5);
+  return dedupe(issues).slice(0, 5);
 }
 
-function buildMetaIssues(hasTitle: boolean, hasMetaDescription: boolean, hasViewport: boolean): string[] {
-  const issues: string[] = [];
-  if (!hasTitle) issues.push("Missing <title> tag.");
-  if (!hasMetaDescription) issues.push("Missing meta description.");
-  if (!hasViewport) issues.push("Missing viewport meta tag for mobile rendering.");
-  return issues;
-}
+async function fetchPageSpeedMetrics(websiteUrl: string): Promise<PageSpeedMetrics> {
+  const endpoint = new URL("https://www.googleapis.com/pagespeedonline/v5/runPagespeed");
+  endpoint.searchParams.set("url", websiteUrl);
+  endpoint.searchParams.set("strategy", "mobile");
+  const apiKey = process.env.GOOGLE_PAGESPEED_API_KEY ?? process.env.GOOGLE_SEARCH_API_KEY;
+  if (apiKey) {
+    endpoint.searchParams.set("key", apiKey);
+  }
 
-function extractRawDomExcerpt(html: string): string {
-  const $ = cheerio.load(html);
-  const plainText = $("body").text().replace(/\s+/g, " ").trim();
-  return plainText.slice(0, 7000);
+  try {
+    const response = await fetch(endpoint.toString(), { cache: "no-store" });
+    if (!response.ok) {
+      return {
+        performanceScore: null,
+        lcpSec: null,
+        fidMs: null,
+        cls: null,
+        mobileReadinessScore: null
+      };
+    }
+    const payload = (await response.json()) as {
+      lighthouseResult?: {
+        categories?: { performance?: { score?: number } };
+        audits?: Record<string, { numericValue?: number; score?: number }>;
+      };
+    };
+
+    const audits = payload.lighthouseResult?.audits ?? {};
+    const lcpMs = audits["largest-contentful-paint"]?.numericValue ?? null;
+    const fidMs =
+      audits["max-potential-fid"]?.numericValue ??
+      audits["total-blocking-time"]?.numericValue ??
+      null;
+    const cls = audits["cumulative-layout-shift"]?.numericValue ?? null;
+    const mobileReadinessScoreRaw = audits["viewport"]?.score;
+    const perfScoreRaw = payload.lighthouseResult?.categories?.performance?.score;
+
+    return {
+      performanceScore: perfScoreRaw !== undefined ? clamp(perfScoreRaw * 100) : null,
+      lcpSec: lcpMs !== null ? Number((lcpMs / 1000).toFixed(2)) : null,
+      fidMs: fidMs !== null ? Number(fidMs.toFixed(0)) : null,
+      cls: cls !== null ? Number(cls.toFixed(2)) : null,
+      mobileReadinessScore:
+        mobileReadinessScoreRaw !== undefined ? clamp(mobileReadinessScoreRaw * 100) : null
+    };
+  } catch {
+    return {
+      performanceScore: null,
+      lcpSec: null,
+      fidMs: null,
+      cls: null,
+      mobileReadinessScore: null
+    };
+  }
 }
 
 export async function runWebsiteAudit(websiteUrl: string): Promise<AuditComputation> {
@@ -115,28 +194,10 @@ export async function runWebsiteAudit(websiteUrl: string): Promise<AuditComputat
   try {
     const page = await browser.newPage();
     await page.emulate(KnownDevices["iPhone 13"]);
-
-    await page.evaluateOnNewDocument(() => {
-      (window as Window & { __auditLcp?: number | null }).__auditLcp = null;
-      const observer = new PerformanceObserver((entryList) => {
-        const entries = entryList.getEntries();
-        const latest = entries[entries.length - 1];
-        if (latest) {
-          (window as Window & { __auditLcp?: number | null }).__auditLcp = latest.startTime;
-        }
-      });
-      observer.observe({ type: "largest-contentful-paint", buffered: true });
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") {
-          observer.disconnect();
-        }
-      });
-    });
-
     await page.goto(websiteUrl, { waitUntil: "networkidle2", timeout: 50000 });
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    const metrics = await page.evaluate(() => {
+    const runtime = await page.evaluate(() => {
       const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
       const resources = performance.getEntriesByType(
         "resource"
@@ -144,117 +205,112 @@ export async function runWebsiteAudit(websiteUrl: string): Promise<AuditComputat
       const slowApiCalls = resources
         .filter(
           (entry) =>
-            ["fetch", "xmlhttprequest"].includes(entry.initiatorType) && entry.duration > 800
+            ["fetch", "xmlhttprequest"].includes(entry.initiatorType) && entry.duration > 900
         )
-        .slice(0, 15)
+        .slice(0, 8)
         .map((entry) => ({ url: entry.name, durationMs: Math.round(entry.duration) }));
       const scriptSources = Array.from(document.querySelectorAll("script[src]"))
         .map((script) => script.getAttribute("src") ?? "")
         .filter(Boolean);
-      const hasTitle = Boolean(document.querySelector("title")?.textContent?.trim());
-      const hasMetaDescription = Boolean(
-        document.querySelector('meta[name="description"]')?.getAttribute("content")?.trim()
-      );
       const hasViewport = Boolean(
         document.querySelector('meta[name="viewport"]')?.getAttribute("content")?.trim()
       );
-      const schemaScripts = Array.from(
-        document.querySelectorAll('script[type="application/ld+json"]')
-      ).filter((script) => (script.textContent ?? "").trim().length > 0);
-      const headingCount = document.querySelectorAll("h1, h2, h3").length;
-      const internalLinks = Array.from(document.querySelectorAll("a[href]")).filter((anchor) =>
-        (anchor.getAttribute("href") ?? "").startsWith("/")
-      ).length;
-      const hasFaqSignals =
-        document.querySelectorAll('[itemtype*="FAQPage"]').length > 0 ||
-        document.querySelectorAll('[aria-label*="faq" i], [class*="faq" i]').length > 0;
       const docWidth = document.documentElement.scrollWidth;
       const viewportWidth = window.innerWidth;
-      const mobileResponsive = hasViewport && docWidth <= viewportWidth * 1.3;
-
       return {
-        lcpMs: (window as Window & { __auditLcp?: number | null }).__auditLcp ?? null,
         domSize: document.querySelectorAll("*").length,
         loadTimeMs: Number.isFinite(nav?.loadEventEnd) ? Math.round(nav.loadEventEnd) : null,
-        hasTitle,
-        hasMetaDescription,
-        hasViewport,
-        schemaCount: schemaScripts.length,
-        hasFaqSignals,
-        headingCount,
-        internalLinks,
         scriptSources,
-        mobileResponsive,
-        slowApiCalls
+        slowApiCalls,
+        mobileResponsive: hasViewport && docWidth <= viewportWidth * 1.3
       };
     });
 
     const html = await page.content();
-    const lowerHtml = html.toLowerCase();
-    const legacyScripts = metrics.scriptSources
-      .filter((src) => /jquery-1|jquery-2|angularjs|requirejs|prototype/i.test(src))
-      .slice(0, 10);
+    const $ = cheerio.load(html);
+
+    const pageTitle = cleanText($("title").first().text());
+    const metaDescription = cleanText(
+      $('meta[name="description"]').first().attr("content") ?? ""
+    );
+    const h1Headings = collectHeadings($, "h1", 4);
+    const h2Headings = collectHeadings($, "h2", 8);
+    const condensedText = condensedMainText($);
+    const hasSchemaMarkup =
+      $('script[type="application/ld+json"]')
+        .toArray()
+        .some((node) => cleanText($(node).text()).length > 0) ?? false;
+    const hasFaqSignals =
+      $('[itemtype*="FAQPage"]').length > 0 ||
+      $('[aria-label*="faq" i], [class*="faq" i]').length > 0;
+    const internalLinks = $("a[href]")
+      .toArray()
+      .filter((node) => ($(node).attr("href") ?? "").startsWith("/")).length;
 
     const geoSignals: GeoSignals = {
-      hasTitle: metrics.hasTitle,
-      hasMetaDescription: metrics.hasMetaDescription,
-      hasSchemaMarkup: metrics.schemaCount > 0,
-      hasFaqSignals: metrics.hasFaqSignals,
-      headingCount: metrics.headingCount,
-      internalLinks: metrics.internalLinks
+      hasTitle: Boolean(pageTitle),
+      hasMetaDescription: Boolean(metaDescription),
+      hasSchemaMarkup,
+      hasFaqSignals,
+      headingCount: h1Headings.length + h2Headings.length,
+      internalLinks
     };
 
-    const performanceScore = computePerformanceScore({
-      lcpMs: metrics.lcpMs,
-      loadTimeMs: metrics.loadTimeMs,
-      domSize: metrics.domSize,
-      slowApiCount: metrics.slowApiCalls.length
-    });
-    const geoScore = computeGeoScore(geoSignals);
+    const pageSpeed = await fetchPageSpeedMetrics(websiteUrl);
+    const performanceScore = pageSpeed.performanceScore ?? 50;
+    const lcpMs = pageSpeed.lcpSec !== null ? Math.round(pageSpeed.lcpSec * 1000) : null;
+    const geoScore = computeGeoScore(geoSignals, condensedText.length > 0);
     const uxScore = computeUxScore({
-      mobileResponsive: metrics.mobileResponsive,
-      missingMetaCount: buildMetaIssues(
-        metrics.hasTitle,
-        metrics.hasMetaDescription,
-        metrics.hasViewport
-      ).length,
-      legacyScriptCount: legacyScripts.length,
-      domSize: metrics.domSize
+      mobileResponsive: runtime.mobileResponsive,
+      mobileReadinessScore: pageSpeed.mobileReadinessScore,
+      h1Count: h1Headings.length,
+      h2Count: h2Headings.length
     });
-
-    const criticalIssues = detectCriticalIssues({
-      lcpMs: metrics.lcpMs,
-      domSize: metrics.domSize,
-      mobileResponsive: metrics.mobileResponsive,
-      hasSchemaMarkup: geoSignals.hasSchemaMarkup,
-      slowApiCalls: metrics.slowApiCalls
+    const legacyScripts = dedupe(
+      runtime.scriptSources.filter((src) => /jquery-1|jquery-2|angularjs|prototype/i.test(src))
+    );
+    const metaIssues = [
+      !pageTitle ? "Missing <title> tag." : "",
+      !metaDescription ? "Missing meta description." : ""
+    ].filter(Boolean);
+    const criticalIssues = deriveCriticalIssues({
+      pageTitle,
+      metaDescription,
+      lcpSec: pageSpeed.lcpSec,
+      fidMs: pageSpeed.fidMs,
+      cls: pageSpeed.cls,
+      performanceScore,
+      mobileReadinessScore: pageSpeed.mobileReadinessScore
     });
-
-    if (lowerHtml.includes("lighthouse")) {
-      criticalIssues.push("Pre-existing test artifacts found in page output; audit hygiene may be weak.");
-    }
 
     return {
       websiteUrl,
-      lcpMs: metrics.lcpMs,
-      domSize: metrics.domSize,
-      loadTimeMs: metrics.loadTimeMs,
-      mobileResponsive: metrics.mobileResponsive,
+      pageTitle,
+      metaDescription,
+      h1Headings,
+      h2Headings,
+      condensedText,
+      tokenOptimizedAudit: true,
+      lighthousePerformanceScore: pageSpeed.performanceScore,
+      lcpSec: pageSpeed.lcpSec,
+      fidMs: pageSpeed.fidMs,
+      cls: pageSpeed.cls,
+      mobileReadinessScore: pageSpeed.mobileReadinessScore,
+      lcpMs,
+      domSize: runtime.domSize,
+      loadTimeMs: runtime.loadTimeMs,
+      mobileResponsive: runtime.mobileResponsive,
       performanceScore,
       geoScore,
       uxScore,
-      criticalIssues: uniqueList(criticalIssues),
-      metaIssues: buildMetaIssues(metrics.hasTitle, metrics.hasMetaDescription, metrics.hasViewport),
-      legacyScripts: uniqueList(legacyScripts),
-      slowApiCalls: metrics.slowApiCalls,
+      criticalIssues,
+      metaIssues,
+      legacyScripts,
+      slowApiCalls: runtime.slowApiCalls,
       geoSignals,
-      rawDomExcerpt: extractRawDomExcerpt(html)
+      rawDomExcerpt: condensedText
     };
   } finally {
     await browser.close();
   }
-}
-
-function uniqueList(values: string[]): string[] {
-  return [...new Set(values)];
 }

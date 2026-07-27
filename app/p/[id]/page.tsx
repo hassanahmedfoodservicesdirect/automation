@@ -50,9 +50,17 @@ export default async function PublicProposalPage({ params }: PublicProposalPageP
         <article className="card span-4">
           <h2 className="subhead">Audit Snapshot</h2>
           <p>Performance Score: {audit.performanceScore}</p>
+          <p>Lighthouse Score: {audit.lighthousePerformanceScore ?? "Not captured"}</p>
           <p>GEO Score: {audit.geoScore}</p>
           <p>UX Score: {audit.uxScore}</p>
-          <p>LCP: {audit.lcpMs ? `${Math.round(audit.lcpMs)}ms` : "Not captured"}</p>
+          <p>LCP: {audit.lcpSec !== null ? `${audit.lcpSec}s` : "Not captured"}</p>
+          <p>FID: {audit.fidMs !== null ? `${audit.fidMs}ms` : "Not captured"}</p>
+          <p>CLS: {audit.cls !== null ? audit.cls : "Not captured"}</p>
+          <p className="notice">
+            {audit.tokenOptimizedAudit
+              ? "Token-Optimized Audit Generated"
+              : "Standard audit generated"}
+          </p>
           <p className="muted">DOM Size: {audit.domSize}</p>
         </article>
 
