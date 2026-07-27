@@ -54,6 +54,27 @@ const stackHints: Record<string, string[]> = {
   Angular: ["angular", "ng-app"]
 };
 
+const blockedSearchHosts = new Set([
+  "bing.com",
+  "www.bing.com",
+  "google.com",
+  "www.google.com",
+  "duckduckgo.com",
+  "www.duckduckgo.com",
+  "search.yahoo.com",
+  "yahoo.com",
+  "www.yahoo.com"
+]);
+
+const genericCompanyNameBlocks = new Set([
+  "search",
+  "home",
+  "news",
+  "login",
+  "sign in",
+  "results"
+]);
+
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
 }
@@ -90,6 +111,30 @@ function hostnameFromUrl(url: string): string {
   } catch {
     return url;
   }
+}
+
+function isBlockedSearchHost(url: string): boolean {
+  const host = hostnameFromUrl(url).toLowerCase();
+  return blockedSearchHosts.has(host);
+}
+
+function looksLikeSaasResult(result: SearchResult): boolean {
+  const text = `${result.title} ${result.snippet}`.toLowerCase();
+  const saasSignals = [
+    "saas",
+    "software",
+    "platform",
+    "startup",
+    "pricing",
+    "get started",
+    "api",
+    "b2b"
+  ];
+  return saasSignals.some((signal) => text.includes(signal));
+}
+
+function isGenericCompanyName(name: string): boolean {
+  return genericCompanyNameBlocks.has(cleanText(name).toLowerCase());
 }
 
 function extractEmails(content: string): string[] {
@@ -766,10 +811,20 @@ async function discoverFromGoogleSearch(
         if (!normalizedUrl) {
           continue;
         }
+        if (isBlockedSearchHost(normalizedUrl)) {
+          continue;
+        }
+        if (!looksLikeSaasResult(result)) {
+          continue;
+        }
 
         const searchOnlyCountry = detectCountry(result.link, result.snippet);
+        const metadataCompanyName = parseCompanyName(result.title, hostnameFromUrl(normalizedUrl));
+        if (isGenericCompanyName(metadataCompanyName)) {
+          continue;
+        }
         const searchOnlyCandidate: ProspectLeadCandidate = {
-          companyName: parseCompanyName(result.title, hostnameFromUrl(normalizedUrl)),
+          companyName: metadataCompanyName,
           websiteUrl: normalizedUrl,
           contactName: null,
           contactEmail: null,
@@ -787,6 +842,9 @@ async function discoverFromGoogleSearch(
           const title = $("title").text() || result.title;
           const hostname = hostnameFromUrl(normalizedUrl);
           const companyName = parseCompanyName(title, hostname);
+          if (isGenericCompanyName(companyName) || isBlockedSearchHost(normalizedUrl)) {
+            continue;
+          }
           const emails = extractEmails(homepage);
           const contactEmail = pickFounderOrCtoEmail(emails);
           const country = detectCountry(hostname, `${result.snippet} ${homepage.slice(0, 5000)}`);
