@@ -3,9 +3,11 @@ import { DataStore, LeadStatus } from "@/lib/types";
 const order: LeadStatus[] = [
   "new",
   "audit_ready",
+  "analysis_ready",
   "outreach_sent",
   "meeting_booked",
   "proposal_sent",
+  "proposal_accepted",
   "won",
   "lost"
 ];
@@ -27,7 +29,7 @@ export function buildDashboardSummary(store: DataStore) {
     (lead) => lead.status === "meeting_booked"
   ).length;
   const proposalCount = store.leads.filter(
-    (lead) => lead.status === "proposal_sent"
+    (lead) => lead.status === "proposal_sent" || lead.status === "proposal_accepted"
   ).length;
 
   const avgAuditScore =
@@ -43,8 +45,7 @@ export function buildDashboardSummary(store: DataStore) {
   return {
     totalLeads: store.leads.length,
     totalAudits: store.audits.length,
-    totalOutreach: store.outreach.length,
-    totalProposals: store.proposals.length,
+    totalAnalyses: store.analyses.length,
     winRatePct: Math.round((wonCount / conversionBase) * 100),
     meetingRatePct: Math.round((meetingCount / conversionBase) * 100),
     proposalRatePct: Math.round((proposalCount / conversionBase) * 100),

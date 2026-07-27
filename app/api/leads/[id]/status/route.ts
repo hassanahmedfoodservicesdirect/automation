@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LeadStatus } from "@/lib/types";
-import { readStore, writeStore } from "@/lib/store";
+import { updateLeadStatus } from "@/lib/db";
 
 const validStatuses: LeadStatus[] = [
   "new",
   "audit_ready",
+  "analysis_ready",
   "outreach_sent",
   "meeting_booked",
   "proposal_sent",
+  "proposal_accepted",
   "won",
   "lost"
 ];
@@ -23,13 +25,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid status provided." }, { status: 400 });
   }
 
-  const store = await readStore();
-  const lead = store.leads.find((item) => item.id === id);
-  if (!lead) {
-    return NextResponse.json({ error: "Lead not found." }, { status: 404 });
+  try {
+    const lead = await updateLeadStatus(id, body.status);
+    return NextResponse.json({ lead });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update lead status.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  lead.status = body.status;
-  await writeStore(store);
-  return NextResponse.json({ lead });
 }

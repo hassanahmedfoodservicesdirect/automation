@@ -1,33 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createOutreachDraft } from "@/lib/engine";
-import { readStore, writeStore } from "@/lib/store";
-import { OutreachDraft } from "@/lib/types";
+import {
+  getLeadById,
+  getLatestAnalysisForLead,
+  updateLeadStatus
+} from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as {
     leadId?: string;
-    channel?: OutreachDraft["channel"];
+    channel?: "email" | "linkedin" | "whatsapp";
   };
   if (!body.leadId) {
     return NextResponse.json({ error: "leadId is required." }, { status: 400 });
   }
 
-  const store = await readStore();
-  const lead = store.leads.find((item) => item.id === body.leadId);
-  if (!lead) {
-    return NextResponse.json({ error: "Lead not found." }, { status: 404 });
-  }
-  const latestAudit = store.audits.find((item) => item.leadId === lead.id);
-  if (!latestAudit) {
-    return NextResponse.json(
-      { error: "Generate an audit before outreach draft." },
-      { status: 400 }
-    );
-  }
+  try {
+    const lead = await getLeadById(body.leadId);
+    if (!lead) {
+      return NextResponse.json({ error: "Lead not found." }, { status: 404 });
+    }
+    const analysis = await getLatestAnalysisForLead(lead.id);
+    if (!analysis) {
+      return NextResponse.json(
+        { error: "Generate analysis before outreach draft." },
+        { status: 400 }
+      );
+    }
 
-  const outreach = createOutreachDraft(lead, latestAudit, body.channel ?? "email");
-  store.outreach.unshift(outreach);
-  lead.status = "outreach_sent";
-  await writeStore(store);
-  return NextResponse.json({ outreach }, { status: 201 });
+    const channel = body.channel ?? "email";
+    const draft =
+      channel === "linkedin"
+        ? analysis.linkedinDm
+        : channel === "whatsapp"
+          ? `${analysis.linkedinDm}\n\nReply 'send audit' and I'll share a short teardown video.`
+          : `${analysis.coldEmailBody}\n\n${analysis.sowClause}`;
+
+    await updateLeadStatus(lead.id, "outreach_sent");
+
+    return NextResponse.json(
+      {
+        outreach: {
+          leadId: lead.id,
+          channel,
+          subject: analysis.coldEmailSubject,
+          body: draft,
+          generatedAt: analysis.generatedAt
+        }
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to generate outreach.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

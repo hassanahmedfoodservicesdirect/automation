@@ -1,47 +1,79 @@
-# AI Agency Sales Engine (2026 Blueprint)
+# AI-Driven Prospecting, Scraping & Lead Audit Engine
 
-Complete internal product to operate an AI-powered tech agency workflow:
+Production-focused Next.js platform for automated lead discovery, live website audits,
+Claude-powered analysis generation, and public proposal acceptance workflows.
 
-- Lead ingestion and pipeline management
-- Automated technical + GEO audit generation
-- Hyper-personalized outreach draft generation
-- Proposal builder with scope-creep protection clause
-- Conversion metrics dashboard
+## Core capabilities
 
-## Tech stack
+- Automated lead prospecting and niche discovery (`/api/prospect-leads`)
+- Live deep website audits with Puppeteer (`/api/audit-website`)
+- Claude 3.5 Sonnet analysis generation (`/api/generate-analysis`)
+- Hyper-personalized outbound assets (email, LinkedIn, Loom script)
+- Scope-creep protected phase proposals with shareable public link (`/p/:id`)
+- Proposal acceptance tracking (`/api/proposals/:id/accept`)
+- Supabase/PostgreSQL persistence (no local JSON state)
 
-- Next.js (App Router)
-- TypeScript
-- Local JSON persistence (`data/store.json`)
+## Stack
 
-## Run locally
+- Next.js 16 (App Router)
+- TypeScript 6
+- Supabase (PostgreSQL)
+- Puppeteer + Cheerio
+- Anthropic Claude API (optional but supported)
+
+## Setup
+
+1. Install dependencies
 
 ```bash
 npm install
+```
+
+2. Configure environment variables
+
+```bash
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+ANTHROPIC_API_KEY=... # optional, falls back to deterministic generation
+CLAUDE_MODEL=claude-3-5-sonnet-20241022 # optional
+GOOGLE_SEARCH_API_KEY=... # optional for prospecting
+GOOGLE_SEARCH_ENGINE_ID=... # optional for prospecting
+```
+
+3. Create database tables in Supabase SQL editor:
+
+- Run: `supabase/schema.sql`
+
+4. Start app
+
+```bash
 npm run dev
 ```
 
-Open http://localhost:3000
-
-## Product modules
-
-1. **Lead Capture**  
-   Add manual leads with company, market, niche, and contact context.
-2. **Pipeline Control Center**  
-   Trigger audit/outreach/proposal workflows and update lead lifecycle.
-3. **Audit Engine**  
-   Generates performance/GEO/UX scores with business-impact positioning.
-4. **Outreach Engine**  
-   Creates outbound drafts (email/LinkedIn/WhatsApp style CTA).
-5. **Proposal Engine**  
-   Produces phase-based proposal packets aligned with high-ticket offerings.
+Open `http://localhost:3000`
 
 ## API endpoints
 
-- `GET /api/dashboard` — complete dashboard payload + metrics
-- `POST /api/leads` — add lead
-- `PATCH /api/leads/:id/status` — update lead status
-- `POST /api/audits` — generate lead audit
-- `POST /api/outreach` — generate outreach draft (requires prior audit)
-- `POST /api/proposals` — generate proposal
-- `POST /api/seed` — insert sample leads (one-time)
+### Pipeline & dashboard
+- `GET /api/dashboard` — complete dashboard payload
+- `POST /api/leads` — manual lead creation
+- `PATCH /api/leads/:id/status` — update lead lifecycle status
+- `GET /api/leads/:id/insights` — lead-specific audits and analyses
+
+### Automation routes
+- `POST /api/prospect-leads` — automated prospect discovery + optional auto-audit
+- `POST /api/audit-website` — run deep live website audit
+- `POST /api/generate-analysis` — generate Claude analysis package from audit
+
+### Compatibility + downstream flows
+- `POST /api/audits` — compatibility route for auditing by lead id
+- `POST /api/outreach` — generate outreach message from latest analysis
+- `POST /api/proposals` — fetch proposal phase payload from latest analysis
+- `POST /api/proposals/:id/accept` — mark proposal accepted
+- `POST /api/seed` — seed demo leads
+
+## Public proposal page
+
+- Route: `app/p/[id]/page.tsx`
+- Client gets latest audit + generated proposal pack
+- Includes **Accept Proposal** action with persistence

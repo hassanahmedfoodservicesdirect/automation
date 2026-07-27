@@ -1,34 +1,36 @@
 import { NextResponse } from "next/server";
-import { Lead } from "@/lib/types";
-import { generateId, readStore, writeStore } from "@/lib/store";
+import { createLead, getLeads, NewLeadInput } from "@/lib/db";
 
-const sampleLeads: Omit<Lead, "id" | "createdAt" | "status">[] = [
+const sampleLeads: NewLeadInput[] = [
   {
     companyName: "Acme Commerce",
-    website: "https://acme-commerce.example",
+    websiteUrl: "https://acme-commerce.example",
     market: "US",
-    contactName: "Sarah Blake",
-    contactEmail: "sarah@acme-commerce.example",
+    contactName: "Sarah Blake" as string | null,
+    contactEmail: "sarah@acme-commerce.example" as string | null,
+    country: "US",
     niche: "ecommerce",
     source: "apollo",
     notes: "High paid traffic and low checkout conversion."
   },
   {
     companyName: "HealthBridge Clinic",
-    website: "https://healthbridge.example",
+    websiteUrl: "https://healthbridge.example",
     market: "UAE",
-    contactName: "Dr. Nabil",
-    contactEmail: "nabil@healthbridge.example",
+    contactName: "Dr. Nabil" as string | null,
+    contactEmail: "nabil@healthbridge.example" as string | null,
+    country: "UAE",
     niche: "healthcare",
     source: "linkedin",
     notes: "Needs speed and local search overhaul."
   },
   {
     companyName: "SyncStack SaaS",
-    website: "https://syncstack.example",
+    websiteUrl: "https://syncstack.example",
     market: "US",
-    contactName: "Maya Chen",
-    contactEmail: "maya@syncstack.example",
+    contactName: "Maya Chen" as string | null,
+    contactEmail: "maya@syncstack.example" as string | null,
+    country: "US",
     niche: "saas",
     source: "manual",
     notes: "Preparing for next funding round."
@@ -36,21 +38,25 @@ const sampleLeads: Omit<Lead, "id" | "createdAt" | "status">[] = [
 ];
 
 export async function POST() {
-  const store = await readStore();
-  if (store.leads.length > 0) {
+  try {
+    const leads = await getLeads();
+    if (leads.length > 0) {
+      return NextResponse.json(
+        { message: "Database already contains leads. No seed action performed." },
+        { status: 200 }
+      );
+    }
+
+    for (const lead of sampleLeads) {
+      await createLead(lead);
+    }
+
+    return NextResponse.json({ inserted: sampleLeads.length });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to seed leads.";
     return NextResponse.json(
-      { message: "Store already contains leads. No seed action performed." },
-      { status: 200 }
+      { error: message },
+      { status: 500 }
     );
   }
-
-  store.leads = sampleLeads.map((lead) => ({
-    ...lead,
-    id: generateId("lead"),
-    status: "new",
-    createdAt: new Date().toISOString()
-  }));
-
-  await writeStore(store);
-  return NextResponse.json({ inserted: store.leads.length });
 }
