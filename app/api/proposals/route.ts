@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
               tokenOptimizedAudit: latestAudit.tokenOptimizedAudit
             }
           : null,
-        shareableProposalUrl: `/p/${lead.id}`
+        shareableProposalUrl: `/audit/${lead.id}`
       },
       { status: 201 }
     );

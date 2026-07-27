@@ -5,6 +5,7 @@ export type LeadStatus =
   | "outreach_sent"
   | "meeting_booked"
   | "proposal_sent"
+  | "reviewing_proposal"
   | "proposal_accepted"
   | "won"
   | "lost";

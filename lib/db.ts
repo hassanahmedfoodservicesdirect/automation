@@ -180,6 +180,7 @@ const statusOrder: LeadStatus[] = [
   "outreach_sent",
   "meeting_booked",
   "proposal_sent",
+  "reviewing_proposal",
   "proposal_accepted",
   "won",
   "lost"
@@ -199,7 +200,10 @@ function buildSummary(leads: Lead[], audits: AuditReport[], analyses: AnalysisRe
   const wonCount = leads.filter((lead) => lead.status === "won").length;
   const meetingCount = leads.filter((lead) => lead.status === "meeting_booked").length;
   const proposalCount = leads.filter(
-    (lead) => lead.status === "proposal_sent" || lead.status === "proposal_accepted"
+    (lead) =>
+      lead.status === "proposal_sent" ||
+      lead.status === "reviewing_proposal" ||
+      lead.status === "proposal_accepted"
   ).length;
   const avgAuditScore =
     audits.length === 0
