@@ -84,11 +84,33 @@ export async function POST(request: NextRequest) {
     requestedSources.includes("apollo") || requestedSources.includes("linkedin");
 
   try {
-    const discovered = await discoverProspects(
+    let discovered = await discoverProspects(
       niches,
       Math.max(3, body.limitPerNiche ?? 8),
       discoveryFilters
     );
+    let fallbackUsed: "none" | "google-to-producthunt" = "none";
+
+    if (
+      discovered.length === 0 &&
+      discoveryFilters.sources.length === 1 &&
+      discoveryFilters.sources[0] === "google-search"
+    ) {
+      const fallbackFilters = {
+        ...discoveryFilters,
+        sources: ["producthunt"] as ProspectSource[]
+      };
+      const fallbackDiscovered = await discoverProspects(
+        niches,
+        Math.max(3, body.limitPerNiche ?? 8),
+        fallbackFilters
+      );
+      if (fallbackDiscovered.length > 0) {
+        discovered = fallbackDiscovered;
+        fallbackUsed = "google-to-producthunt";
+      }
+    }
+
     const leads = [];
     for (const candidate of discovered) {
       const lead = await upsertProspectLead({
@@ -152,12 +174,15 @@ export async function POST(request: NextRequest) {
       insertedCount: leads.length,
       autoAuditedCount: audits.length,
       filters: discoveryFilters,
+      fallbackUsed,
       message:
         discovered.length === 0
           ? apolloRequested
             ? "Apollo/LinkedIn source is disabled on free mode. Falling back to ProductHunt + Google Search yielded no matching prospects."
             : "No prospects found from current source run. Verify GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID and try broader query terms."
-          : undefined,
+          : fallbackUsed === "google-to-producthunt"
+            ? "Google run returned no prospects, so ProductHunt fallback was used."
+            : undefined,
       leads,
       audits
     });
