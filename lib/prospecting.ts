@@ -507,35 +507,60 @@ async function fetchApolloProspects(
   if (!apiKey) {
     return [];
   }
-  const endpoint = process.env.APOLLO_API_URL ?? "https://api.apollo.io/api/v1/mixed_people/search";
+  const endpoint =
+    process.env.APOLLO_API_URL ?? "https://api.apollo.io/api/v1/mixed_people/search";
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    cache: "no-store",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey
-    },
-    body: JSON.stringify({
-      person_titles: filters.jobTitles,
-      person_locations: filters.regions.map((region) =>
-        region === "UAE" ? "United Arab Emirates" : "United States"
-      ),
-      organization_num_employees_ranges: filters.companySizes,
-      page: 1,
-      per_page: limit
-    })
-  });
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "AI-Agency-Prospector/1.0",
+        "x-api-key": apiKey
+      },
+      body: JSON.stringify({
+        person_titles: filters.jobTitles,
+        person_locations: filters.regions.map((region) =>
+          region === "UAE" ? "United Arab Emirates" : "United States"
+        ),
+        organization_num_employees_ranges: filters.companySizes,
+        page: 1,
+        per_page: limit
+      })
+    });
 
-  if (!response.ok) {
-    throw new Error(`Apollo source request failed (${response.status}).`);
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      if (response.status === 403 || response.status === 429) {
+        console.error("[prospect-leads][apollo] upstream rejection", {
+          status: response.status,
+          statusText: response.statusText,
+          endpoint,
+          body: errorBody.slice(0, 1000)
+        });
+      } else {
+        console.warn("[prospect-leads][apollo] upstream non-2xx response", {
+          status: response.status,
+          statusText: response.statusText,
+          endpoint
+        });
+      }
+      return [];
+    }
+
+    const payload = (await response.json()) as unknown;
+    return readArrayFromPayload(payload, ["people", "contacts", "results", "data"])
+      .slice(0, limit)
+      .map((row) => mapApiRecordToCandidate(row, "apollo", filters))
+      .filter((candidate): candidate is ProspectLeadCandidate => Boolean(candidate));
+  } catch (error) {
+    console.error("[prospect-leads][apollo] request failed, using graceful fallback", {
+      endpoint,
+      error: error instanceof Error ? error.message : "Unknown Apollo request error"
+    });
+    return [];
   }
-
-  const payload = (await response.json()) as unknown;
-  return readArrayFromPayload(payload, ["people", "contacts", "results", "data"])
-    .slice(0, limit)
-    .map((row) => mapApiRecordToCandidate(row, "apollo", filters))
-    .filter((candidate): candidate is ProspectLeadCandidate => Boolean(candidate));
 }
 
 function normalizeProductName(input: string, fallbackUrl: string): string {
