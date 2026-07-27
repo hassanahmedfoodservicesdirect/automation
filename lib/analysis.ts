@@ -17,9 +17,20 @@ interface ClaudeResponse {
   content?: { type: string; text?: string }[];
 }
 
+interface LeanClaudeOutput {
+  flaws: string[];
+  impact: string;
+  email: string;
+  loomScript: string[];
+}
+
 const defaultSowClause =
   "Any functionality outside the agreed SRS/Figma design will be billed at an architectural hourly rate of $85/hr.";
+
 const linkedInDmMaxChars = 300;
+
+const SYSTEM_PROMPT =
+  'You are a Senior Software Architect. Analyze the provided condensed metrics and output JSON only.\nReturn EXACTLY this JSON structure:\n{\n  "flaws": ["Technical issue 1 with impact", "Technical issue 2"],\n  "impact": "1-sentence estimated loss on conversions/leads",\n  "email": "3-sentence hyper-personalized cold email referencing specific site flaws",\n  "loomScript": ["Bullet 1 for 3-min video", "Bullet 2", "Bullet 3"]\n}\nKeep answers ultra-concise, technical, direct, and non-fluffy. Output strict JSON only without markdown wrappers.';
 
 function normalizeLinkedInDm(message: string): string {
   const compact = message.replace(/\s+/g, " ").trim();
@@ -34,11 +45,11 @@ function defaultProposal(phase: ProposalPhase["phase"]): ProposalPhase {
     return {
       phase,
       title: "Phase 1: Speed & GEO Fixes",
-      scope: ["Core Web Vitals remediation", "GEO content structure upgrades", "Conversion CTA cleanup"],
+      scope: ["Core web vitals fixes", "Meta + heading structure cleanup", "AI-search content readiness"],
       deliverables: [
-        "Performance baseline and optimized deployment",
-        "Schema and AI visibility enhancement package",
-        "2-week implementation sprint report"
+        "Speed remediation rollout",
+        "GEO optimization implementation",
+        "Before/after performance report"
       ],
       estimatedTimeline: "2-3 weeks",
       priceRange: "$1,500 - $3,500"
@@ -48,11 +59,11 @@ function defaultProposal(phase: ProposalPhase["phase"]): ProposalPhase {
     return {
       phase,
       title: "Phase 2: Code Refactoring",
-      scope: ["Legacy script cleanup", "Component architecture refactor", "API performance hardening"],
+      scope: ["Legacy script cleanup", "Component architecture refactor", "API performance stabilization"],
       deliverables: [
-        "Refactor roadmap and execution plan",
-        "Stabilized codebase with measurable quality improvements",
-        "Engineering handover notes"
+        "Refactor implementation PR set",
+        "Code quality and performance uplift",
+        "Technical handover documentation"
       ],
       estimatedTimeline: "4-8 weeks",
       priceRange: "$5,000 - $12,000"
@@ -61,50 +72,10 @@ function defaultProposal(phase: ProposalPhase["phase"]): ProposalPhase {
   return {
     phase,
     title: "Phase 3: Technical Retainer",
-    scope: ["Fractional CTO governance", "Weekly architecture oversight", "Team enablement and roadmap"],
-    deliverables: ["Monthly KPI report", "Roadmap ownership", "Technical hiring support"],
+    scope: ["Fractional CTO guidance", "Weekly architecture review", "Growth roadmap ownership"],
+    deliverables: ["Monthly roadmap", "Tech oversight calls", "Hiring and architecture advisories"],
     estimatedTimeline: "Monthly retainer",
     priceRange: "$3,000 - $6,000 / month"
-  };
-}
-
-function fallbackAnalysis(lead: Lead, audit: AuditReport): GeneratedAnalysis {
-  const lcpText = audit.lcpMs ? `${Math.round(audit.lcpMs)}ms` : "an elevated value";
-  return {
-    bottlenecks: [
-      `Mobile LCP is ${lcpText}, reducing first-impression responsiveness.`,
-      `GEO readiness score (${audit.geoScore}) indicates weak schema/AI discoverability.`,
-      `UI/UX quality score (${audit.uxScore}) suggests friction in the conversion journey.`
-    ],
-    businessImpact:
-      "Estimated 20-35% mobile lead loss due to slow rendering and low AI-search visibility at key acquisition touchpoints.",
-    coldEmailSubject: `${lead.companyName}: quick technical finding from ${lead.websiteUrl}`,
-    coldEmailBody: [
-      `Hi ${lead.contactName ?? "team"},`,
-      "",
-      `I reviewed ${lead.websiteUrl} and found three fixable issues:`,
-      `1) LCP delay (${lcpText}),`,
-      `2) GEO visibility gaps for AI overviews,`,
-      `3) conversion friction in UI flow.`,
-      "",
-      "These typically reduce qualified inbound conversions by 20-35%.",
-      "If useful, I can share a concise 3-minute teardown with specific fixes your team can apply immediately."
-    ].join("\n"),
-    linkedinDm: normalizeLinkedInDm(
-      `Hi ${lead.contactName ?? "there"} — I ran a quick technical audit on ${
-        lead.companyName
-      }. Your site has meaningful speed + GEO upside that likely impacts lead conversion. Happy to share a short, actionable teardown video if helpful.`
-    ),
-    loomScript: [
-      "Open homepage and show current mobile load behavior.",
-      "Highlight Core Web Vitals pain point and mention estimated conversion impact.",
-      "Show missing schema/FAQ structures affecting AI recommendation engines.",
-      "Walk through a simple 3-step remediation plan and invite a technical call."
-    ].join("\n"),
-    phase1Proposal: defaultProposal("phase_1"),
-    phase2Proposal: defaultProposal("phase_2"),
-    phase3Proposal: defaultProposal("phase_3"),
-    sowClause: defaultSowClause
   };
 }
 
@@ -118,116 +89,64 @@ function safeJsonParse(content: string): unknown {
   return JSON.parse(cleaned);
 }
 
-function proposalFromUnknown(value: unknown, fallback: ProposalPhase): ProposalPhase {
-  if (!value || typeof value !== "object") {
-    return fallback;
-  }
-  const candidate = value as Partial<ProposalPhase>;
+function fallbackOutput(lead: Lead, audit: AuditReport): LeanClaudeOutput {
+  const lcp = audit.lcpSec !== null ? `${audit.lcpSec.toFixed(2)}s` : "elevated";
   return {
-    phase: fallback.phase,
-    title: typeof candidate.title === "string" ? candidate.title : fallback.title,
-    scope: Array.isArray(candidate.scope) ? candidate.scope.filter((item) => typeof item === "string") : fallback.scope,
-    deliverables: Array.isArray(candidate.deliverables)
-      ? candidate.deliverables.filter((item) => typeof item === "string")
-      : fallback.deliverables,
-    estimatedTimeline:
-      typeof candidate.estimatedTimeline === "string"
-        ? candidate.estimatedTimeline
-        : fallback.estimatedTimeline,
-    priceRange: typeof candidate.priceRange === "string" ? candidate.priceRange : fallback.priceRange
+    flaws: [
+      `LCP at ${lcp} is suppressing mobile first-interaction speed and conversion velocity.`,
+      `Performance score ${audit.performanceScore}/100 indicates meaningful technical debt in rendering path.`,
+      `GEO readiness is constrained by metadata and heading-structure quality gaps.`
+    ],
+    impact:
+      "Likely causing ~20-35% loss in qualified mobile leads due to slower load and weaker AI-search discoverability.",
+    email: `Hi ${lead.contactName ?? "team"}, I reviewed ${lead.websiteUrl} and found specific speed + GEO blockers, including LCP at ${lcp}. These issues typically suppress qualified inbound conversions by 20-35%; I can share a focused 3-minute teardown with practical fixes if useful.`,
+    loomScript: [
+      "Show current mobile loading behavior and LCP bottleneck.",
+      "Highlight metadata/heading structure gaps reducing GEO visibility.",
+      "Explain the 3-step fix plan with expected conversion lift."
+    ]
   };
 }
 
-function parseClaudePayload(raw: unknown, lead: Lead, audit: AuditReport): GeneratedAnalysis {
-  const fallback = fallbackAnalysis(lead, audit);
+function parseLeanOutput(raw: unknown, fallback: LeanClaudeOutput): LeanClaudeOutput {
   if (!raw || typeof raw !== "object") {
     return fallback;
   }
   const value = raw as Record<string, unknown>;
   return {
-    bottlenecks: Array.isArray(value.bottlenecks)
-      ? value.bottlenecks.filter((item): item is string => typeof item === "string").slice(0, 5)
-      : fallback.bottlenecks,
-    businessImpact:
-      typeof value.businessImpact === "string" ? value.businessImpact : fallback.businessImpact,
-    coldEmailSubject:
-      typeof value.coldEmailSubject === "string"
-        ? value.coldEmailSubject
-        : fallback.coldEmailSubject,
-    coldEmailBody: typeof value.coldEmailBody === "string" ? value.coldEmailBody : fallback.coldEmailBody,
-    linkedinDm:
-      typeof value.linkedinDm === "string"
-        ? normalizeLinkedInDm(value.linkedinDm)
-        : fallback.linkedinDm,
-    loomScript: typeof value.loomScript === "string" ? value.loomScript : fallback.loomScript,
-    phase1Proposal: proposalFromUnknown(value.phase1Proposal, fallback.phase1Proposal),
-    phase2Proposal: proposalFromUnknown(value.phase2Proposal, fallback.phase2Proposal),
-    phase3Proposal: proposalFromUnknown(value.phase3Proposal, fallback.phase3Proposal),
-    sowClause: typeof value.sowClause === "string" ? value.sowClause : defaultSowClause
+    flaws: Array.isArray(value.flaws)
+      ? value.flaws.filter((item): item is string => typeof item === "string").slice(0, 5)
+      : fallback.flaws,
+    impact: typeof value.impact === "string" ? value.impact : fallback.impact,
+    email: typeof value.email === "string" ? value.email : fallback.email,
+    loomScript: Array.isArray(value.loomScript)
+      ? value.loomScript
+          .filter((item): item is string => typeof item === "string")
+          .slice(0, 6)
+      : fallback.loomScript
   };
 }
 
-async function requestClaudeAnalysis(lead: Lead, audit: AuditReport): Promise<GeneratedAnalysis | null> {
+function buildUserPrompt(lead: Lead, audit: AuditReport): string {
+  const speedScore = audit.lighthousePerformanceScore ?? audit.performanceScore;
+  const lcp = audit.lcpSec ?? (audit.lcpMs ? Number((audit.lcpMs / 1000).toFixed(2)) : null);
+  return [
+    `Company: ${lead.companyName}`,
+    `URL: ${lead.websiteUrl}`,
+    `Speed Score: ${speedScore}/100 (LCP: ${lcp !== null ? `${lcp}s` : "n/a"})`,
+    `Clean Text Extract: ${audit.condensedText.slice(0, 800)}`
+  ].join("\n");
+}
+
+async function requestClaudeLeanAnalysis(
+  lead: Lead,
+  audit: AuditReport
+): Promise<LeanClaudeOutput | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return null;
   }
-
   const model = process.env.CLAUDE_MODEL ?? "claude-3-5-sonnet-20241022";
-  const prompt = [
-    "You are a principal software architect producing a technical lead audit package.",
-    "Return JSON only using this exact schema:",
-    JSON.stringify(
-      {
-        bottlenecks: ["string"],
-        businessImpact: "string",
-        coldEmailSubject: "string",
-        coldEmailBody: "string",
-        linkedinDm: "string (max 300 characters)",
-        loomScript: "string",
-        phase1Proposal: {
-          title: "string",
-          scope: ["string"],
-          deliverables: ["string"],
-          estimatedTimeline: "string",
-          priceRange: "string"
-        },
-        phase2Proposal: {
-          title: "string",
-          scope: ["string"],
-          deliverables: ["string"],
-          estimatedTimeline: "string",
-          priceRange: "string"
-        },
-        phase3Proposal: {
-          title: "string",
-          scope: ["string"],
-          deliverables: ["string"],
-          estimatedTimeline: "string",
-          priceRange: "string"
-        },
-        sowClause:
-          "Any functionality outside the agreed SRS/Figma design will be billed at an architectural hourly rate of $85/hr."
-      },
-      null,
-      2
-    ),
-    "",
-    `Lead Context: ${JSON.stringify(
-      {
-        company: lead.companyName,
-        website: lead.websiteUrl,
-        contactName: lead.contactName,
-        niche: lead.niche,
-        market: lead.market
-      },
-      null,
-      2
-    )}`,
-    "Important: linkedinDm must stay within 300 characters and sound like a personal connection request.",
-    "",
-    `Audit Metrics: ${JSON.stringify(audit, null, 2)}`
-  ].join("\n");
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -238,9 +157,26 @@ async function requestClaudeAnalysis(lead: Lead, audit: AuditReport): Promise<Ge
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1800,
-      temperature: 0.2,
-      messages: [{ role: "user", content: prompt }]
+      max_tokens: 800,
+      temperature: 0.1,
+      system: [
+        {
+          type: "text",
+          text: SYSTEM_PROMPT,
+          cache_control: { type: "ephemeral" }
+        }
+      ],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: buildUserPrompt(lead, audit)
+            }
+          ]
+        }
+      ]
     })
   });
 
@@ -248,23 +184,36 @@ async function requestClaudeAnalysis(lead: Lead, audit: AuditReport): Promise<Ge
     return null;
   }
   const payload = (await response.json()) as ClaudeResponse;
-  const textChunk = payload.content?.find((item) => item.type === "text")?.text;
-  if (!textChunk) {
+  const text = payload.content?.find((item) => item.type === "text")?.text;
+  if (!text) {
     return null;
   }
-
   try {
-    const parsed = safeJsonParse(textChunk);
-    return parseClaudePayload(parsed, lead, audit);
+    return safeJsonParse(text) as LeanClaudeOutput;
   } catch {
     return null;
   }
 }
 
 export async function generateAnalysis(lead: Lead, audit: AuditReport): Promise<GeneratedAnalysis> {
-  const claudeResult = await requestClaudeAnalysis(lead, audit);
-  if (claudeResult) {
-    return claudeResult;
-  }
-  return fallbackAnalysis(lead, audit);
+  const fallback = fallbackOutput(lead, audit);
+  const claudeOutput = await requestClaudeLeanAnalysis(lead, audit);
+  const parsed = parseLeanOutput(claudeOutput, fallback);
+
+  const loomScript = parsed.loomScript.map((item) => `- ${item}`).join("\n");
+  const subjectLcp = audit.lcpSec !== null ? `${audit.lcpSec.toFixed(2)}s LCP` : "speed findings";
+  const coldEmailSubject = `${lead.companyName}: ${subjectLcp} + GEO audit findings`;
+
+  return {
+    bottlenecks: parsed.flaws,
+    businessImpact: parsed.impact,
+    coldEmailSubject,
+    coldEmailBody: parsed.email,
+    linkedinDm: normalizeLinkedInDm(parsed.email),
+    loomScript,
+    phase1Proposal: defaultProposal("phase_1"),
+    phase2Proposal: defaultProposal("phase_2"),
+    phase3Proposal: defaultProposal("phase_3"),
+    sowClause: defaultSowClause
+  };
 }

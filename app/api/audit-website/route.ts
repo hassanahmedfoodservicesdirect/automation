@@ -39,6 +39,17 @@ export async function POST(request: NextRequest) {
     const audit = await createAudit({
       leadId: lead.id,
       websiteUrl: websiteAudit.websiteUrl,
+      pageTitle: websiteAudit.pageTitle,
+      metaDescription: websiteAudit.metaDescription,
+      h1Headings: websiteAudit.h1Headings,
+      h2Headings: websiteAudit.h2Headings,
+      condensedText: websiteAudit.condensedText,
+      tokenOptimizedAudit: websiteAudit.tokenOptimizedAudit,
+      lighthousePerformanceScore: websiteAudit.lighthousePerformanceScore,
+      lcpSec: websiteAudit.lcpSec,
+      fidMs: websiteAudit.fidMs,
+      cls: websiteAudit.cls,
+      mobileReadinessScore: websiteAudit.mobileReadinessScore,
       lcpMs: websiteAudit.lcpMs,
       domSize: websiteAudit.domSize,
       loadTimeMs: websiteAudit.loadTimeMs,
@@ -54,7 +65,17 @@ export async function POST(request: NextRequest) {
       rawDomExcerpt: websiteAudit.rawDomExcerpt
     });
 
-    return NextResponse.json({ lead, audit }, { status: 201 });
+    return NextResponse.json(
+      {
+        lead,
+        audit,
+        optimization: {
+          tokenOptimizedAuditGenerated: audit.tokenOptimizedAudit,
+          condensedTextLength: audit.condensedText.length
+        }
+      },
+      { status: 201 }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Website audit failed.";
     return NextResponse.json({ error: message }, { status: 500 });

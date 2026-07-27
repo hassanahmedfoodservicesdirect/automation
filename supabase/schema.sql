@@ -56,6 +56,17 @@ create table if not exists public.audits (
   id uuid primary key default gen_random_uuid(),
   lead_id uuid not null references public.leads(id) on delete cascade,
   website_url text not null,
+  page_title text not null default '',
+  meta_description text not null default '',
+  h1_headings text[] not null default '{}',
+  h2_headings text[] not null default '{}',
+  condensed_text text not null default '',
+  token_optimized_audit boolean not null default true,
+  lighthouse_performance_score int,
+  lcp_sec numeric,
+  fid_ms numeric,
+  cls numeric,
+  mobile_readiness_score int,
   lcp_ms numeric,
   dom_size int not null,
   load_time_ms numeric,
@@ -71,6 +82,18 @@ create table if not exists public.audits (
   raw_dom_excerpt text not null default '',
   generated_at timestamptz not null default now()
 );
+
+alter table public.audits add column if not exists page_title text not null default '';
+alter table public.audits add column if not exists meta_description text not null default '';
+alter table public.audits add column if not exists h1_headings text[] not null default '{}';
+alter table public.audits add column if not exists h2_headings text[] not null default '{}';
+alter table public.audits add column if not exists condensed_text text not null default '';
+alter table public.audits add column if not exists token_optimized_audit boolean not null default true;
+alter table public.audits add column if not exists lighthouse_performance_score int;
+alter table public.audits add column if not exists lcp_sec numeric;
+alter table public.audits add column if not exists fid_ms numeric;
+alter table public.audits add column if not exists cls numeric;
+alter table public.audits add column if not exists mobile_readiness_score int;
 
 create table if not exists public.analyses (
   id uuid primary key default gen_random_uuid(),

@@ -49,6 +49,17 @@ export interface AuditReport {
   leadId: string;
   websiteUrl: string;
   generatedAt: string;
+  pageTitle: string;
+  metaDescription: string;
+  h1Headings: string[];
+  h2Headings: string[];
+  condensedText: string;
+  tokenOptimizedAudit: boolean;
+  lighthousePerformanceScore: number | null;
+  lcpSec: number | null;
+  fidMs: number | null;
+  cls: number | null;
+  mobileReadinessScore: number | null;
   lcpMs: number | null;
   domSize: number;
   loadTimeMs: number | null;
