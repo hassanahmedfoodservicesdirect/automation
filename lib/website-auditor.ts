@@ -134,12 +134,16 @@ async function fetchPageSpeedMetrics(websiteUrl: string): Promise<PageSpeedMetri
   endpoint.searchParams.set("url", websiteUrl);
   endpoint.searchParams.set("strategy", "mobile");
   const apiKey = process.env.GOOGLE_PAGESPEED_API_KEY ?? process.env.GOOGLE_SEARCH_API_KEY;
-  if (apiKey) {
-    endpoint.searchParams.set("key", apiKey);
-  }
 
   try {
-    const response = await fetch(endpoint.toString(), { cache: "no-store" });
+    const response = await fetch(endpoint.toString(), {
+      cache: "no-store",
+      headers: apiKey
+        ? {
+            "X-Goog-Api-Key": apiKey
+          }
+        : undefined
+    });
     if (!response.ok) {
       return {
         performanceScore: null,
