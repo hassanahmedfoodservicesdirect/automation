@@ -6,9 +6,10 @@ Claude-powered analysis generation, and public proposal acceptance workflows.
 ## Core capabilities
 
 - Automated lead prospecting and niche discovery (`/api/prospect-leads`)
+- Multi-channel lead sourcing (Google Search, LinkedIn/Apollo, ProductHunt launches)
 - Live deep website audits with Puppeteer (`/api/audit-website`)
 - Claude 3.5 Sonnet analysis generation (`/api/generate-analysis`)
-- Hyper-personalized outbound assets (email, LinkedIn, Loom script)
+- Hyper-personalized outbound assets with 3 outreach variants per lead
 - Scope-creep protected phase proposals with shareable public link (`/p/:id`)
 - Proposal acceptance tracking (`/api/proposals/:id/accept`)
 - Supabase/PostgreSQL persistence (no local JSON state)
@@ -38,6 +39,10 @@ ANTHROPIC_API_KEY=... # optional, falls back to deterministic generation
 CLAUDE_MODEL=claude-3-5-sonnet-20241022 # optional
 GOOGLE_SEARCH_API_KEY=... # optional for prospecting
 GOOGLE_SEARCH_ENGINE_ID=... # optional for prospecting
+LINKEDIN_SEARCH_API_URL=... # optional custom LinkedIn lead endpoint
+LINKEDIN_API_KEY=... # optional LinkedIn endpoint auth
+APOLLO_API_KEY=... # optional Apollo people/company sourcing
+APOLLO_API_URL=https://api.apollo.io/api/v1/mixed_people/search # optional override
 ```
 
 3. Create database tables in Supabase SQL editor:
@@ -61,13 +66,13 @@ Open `http://localhost:3000`
 - `GET /api/leads/:id/insights` — lead-specific audits and analyses
 
 ### Automation routes
-- `POST /api/prospect-leads` — automated prospect discovery + optional auto-audit
+- `POST /api/prospect-leads` — multi-channel prospect discovery + optional auto-audit
 - `POST /api/audit-website` — run deep live website audit
 - `POST /api/generate-analysis` — generate Claude analysis package from audit
 
 ### Compatibility + downstream flows
 - `POST /api/audits` — compatibility route for auditing by lead id
-- `POST /api/outreach` — generate outreach message from latest analysis
+- `POST /api/outreach` — generate outreach pack variants (email, LinkedIn, Loom) from latest analysis
 - `POST /api/proposals` — fetch proposal phase payload from latest analysis
 - `POST /api/proposals/:id/accept` — mark proposal accepted
 - `POST /api/seed` — seed demo leads

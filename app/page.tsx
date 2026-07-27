@@ -9,6 +9,8 @@ type LeadInsightsPayload = {
   analyses: AnalysisResult[];
 };
 
+type LeadIngestionSource = "google-search" | "linkedin" | "producthunt" | "manual";
+
 function hasError(payload: unknown): payload is { error?: string } {
   if (typeof payload !== "object" || payload === null) {
     return false;
@@ -44,12 +46,20 @@ const statusOptions: LeadStatus[] = [
   "lost"
 ];
 
+const leadSourceOptions: { value: LeadIngestionSource; label: string }[] = [
+  { value: "google-search", label: "Google Search" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "producthunt", label: "ProductHunt" },
+  { value: "manual", label: "Manual" }
+];
+
 export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [workingLeadId, setWorkingLeadId] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
   const [dashboard, setDashboard] = useState<DataStore>(defaultDashboard);
   const [discoverQuery, setDiscoverQuery] = useState("B2B SaaS startups");
+  const [discoverSource, setDiscoverSource] = useState<LeadIngestionSource>("google-search");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<LeadInsightsPayload | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -157,12 +167,32 @@ export default function HomePage() {
   }
 
   async function discoverLeads(): Promise<void> {
+    if (discoverSource === "manual") {
+      setMessage("Manual source selected. Use Manual Lead Capture form to ingest a lead.");
+      return;
+    }
+
+    const prospectPayload =
+      discoverSource === "linkedin"
+        ? {
+            source: discoverSource,
+            jobTitles: ["Founder", "CTO", "CEO"],
+            companySizes: ["11-50"],
+            regions: ["USA", "UAE"]
+          }
+        : { source: discoverSource };
+
     await withRefresh(
       () =>
         fetch("/api/prospect-leads", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: discoverQuery, autoAudit: true, auditLimit: 3 })
+          body: JSON.stringify({
+            query: discoverQuery,
+            autoAudit: true,
+            auditLimit: 3,
+            ...prospectPayload
+          })
         }),
       "Prospecting completed. New leads discovered."
     );
@@ -264,6 +294,17 @@ export default function HomePage() {
         <article className="card span-12">
           <h2 className="subhead">Automated Lead Discovery</h2>
           <div className="button-row">
+            <select
+              value={discoverSource}
+              onChange={(event) => setDiscoverSource(event.target.value as LeadIngestionSource)}
+              style={{ width: "220px" }}
+            >
+              {leadSourceOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             <input
               style={{ minWidth: "360px", flex: 1 }}
               value={discoverQuery}
@@ -275,7 +316,8 @@ export default function HomePage() {
             </button>
           </div>
           <p className="muted" style={{ marginTop: "0.6rem" }}>
-            Triggers /api/prospect-leads and auto-runs deep audits for discovered prospects.
+            Triggers /api/prospect-leads by source and auto-runs deep audits for discovered
+            prospects.
           </p>
         </article>
 
@@ -344,6 +386,21 @@ export default function HomePage() {
                   setLeadForm((current) => ({ ...current, niche: event.target.value }))
                 }
               />
+            </label>
+            <label>
+              Source
+              <select
+                value={leadForm.source}
+                onChange={(event) =>
+                  setLeadForm((current) => ({ ...current, source: event.target.value }))
+                }
+              >
+                {leadSourceOptions.map((option) => (
+                  <option key={`manual-${option.value}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               Notes

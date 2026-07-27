@@ -19,6 +19,15 @@ interface ClaudeResponse {
 
 const defaultSowClause =
   "Any functionality outside the agreed SRS/Figma design will be billed at an architectural hourly rate of $85/hr.";
+const linkedInDmMaxChars = 300;
+
+function normalizeLinkedInDm(message: string): string {
+  const compact = message.replace(/\s+/g, " ").trim();
+  if (compact.length <= linkedInDmMaxChars) {
+    return compact;
+  }
+  return `${compact.slice(0, linkedInDmMaxChars - 1).trimEnd()}…`;
+}
 
 function defaultProposal(phase: ProposalPhase["phase"]): ProposalPhase {
   if (phase === "phase_1") {
@@ -81,9 +90,11 @@ function fallbackAnalysis(lead: Lead, audit: AuditReport): GeneratedAnalysis {
       "These typically reduce qualified inbound conversions by 20-35%.",
       "If useful, I can share a concise 3-minute teardown with specific fixes your team can apply immediately."
     ].join("\n"),
-    linkedinDm: `Hi ${lead.contactName ?? "there"} — I ran a quick technical audit on ${
-      lead.companyName
-    }. Your site has meaningful speed + GEO upside that likely impacts lead conversion. Happy to share a short, actionable teardown video if helpful.`,
+    linkedinDm: normalizeLinkedInDm(
+      `Hi ${lead.contactName ?? "there"} — I ran a quick technical audit on ${
+        lead.companyName
+      }. Your site has meaningful speed + GEO upside that likely impacts lead conversion. Happy to share a short, actionable teardown video if helpful.`
+    ),
     loomScript: [
       "Open homepage and show current mobile load behavior.",
       "Highlight Core Web Vitals pain point and mention estimated conversion impact.",
@@ -144,7 +155,10 @@ function parseClaudePayload(raw: unknown, lead: Lead, audit: AuditReport): Gener
         ? value.coldEmailSubject
         : fallback.coldEmailSubject,
     coldEmailBody: typeof value.coldEmailBody === "string" ? value.coldEmailBody : fallback.coldEmailBody,
-    linkedinDm: typeof value.linkedinDm === "string" ? value.linkedinDm : fallback.linkedinDm,
+    linkedinDm:
+      typeof value.linkedinDm === "string"
+        ? normalizeLinkedInDm(value.linkedinDm)
+        : fallback.linkedinDm,
     loomScript: typeof value.loomScript === "string" ? value.loomScript : fallback.loomScript,
     phase1Proposal: proposalFromUnknown(value.phase1Proposal, fallback.phase1Proposal),
     phase2Proposal: proposalFromUnknown(value.phase2Proposal, fallback.phase2Proposal),
@@ -169,7 +183,7 @@ async function requestClaudeAnalysis(lead: Lead, audit: AuditReport): Promise<Ge
         businessImpact: "string",
         coldEmailSubject: "string",
         coldEmailBody: "string",
-        linkedinDm: "string",
+        linkedinDm: "string (max 300 characters)",
         loomScript: "string",
         phase1Proposal: {
           title: "string",
@@ -210,6 +224,7 @@ async function requestClaudeAnalysis(lead: Lead, audit: AuditReport): Promise<Ge
       null,
       2
     )}`,
+    "Important: linkedinDm must stay within 300 characters and sound like a personal connection request.",
     "",
     `Audit Metrics: ${JSON.stringify(audit, null, 2)}`
   ].join("\n");
