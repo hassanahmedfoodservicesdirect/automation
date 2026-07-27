@@ -670,6 +670,18 @@ async function discoverFromProductHunt(limit: number): Promise<ProspectLeadCandi
   return collected;
 }
 
+function buildSaasSearchQueries(niche: string): string[] {
+  const cleaned = cleanText(niche);
+  const baseQueries = [
+    cleaned,
+    `"${cleaned}" "get started"`,
+    `"${cleaned}" "pricing"`,
+    `"B2B SaaS" "get started"`,
+    `"SaaS startup" "pricing"`
+  ];
+  return unique(baseQueries.filter((query) => query.length > 0));
+}
+
 async function discoverFromGoogleSearch(
   niches: string[],
   limitPerNiche: number
@@ -677,43 +689,46 @@ async function discoverFromGoogleSearch(
   const candidates: ProspectLeadCandidate[] = [];
 
   for (const niche of niches) {
-    const results = await collectSearchResults(niche);
-    const dedupedResults = unique(results.map((result) => result.link))
-      .slice(0, limitPerNiche)
-      .map((link) => results.find((item) => item.link === link))
-      .filter((value): value is SearchResult => Boolean(value));
+    const queryVariants = buildSaasSearchQueries(niche);
+    for (const searchQuery of queryVariants) {
+      const results = await collectSearchResults(searchQuery);
+      const dedupedResults = unique(results.map((result) => result.link))
+        .slice(0, limitPerNiche)
+        .map((link) => results.find((item) => item.link === link))
+        .filter((value): value is SearchResult => Boolean(value));
 
-    for (const result of dedupedResults) {
-      const normalizedUrl = normalizeWebsiteUrl(result.link);
-      if (!normalizedUrl) {
-        continue;
-      }
+      for (const result of dedupedResults) {
+        const normalizedUrl = normalizeWebsiteUrl(result.link);
+        if (!normalizedUrl) {
+          continue;
+        }
 
-      try {
-        const homepage = await fetchText(normalizedUrl);
-        const $ = cheerio.load(homepage);
-        const title = $("title").text() || result.title;
-        const hostname = hostnameFromUrl(normalizedUrl);
-        const companyName = parseCompanyName(title, hostname);
-        const emails = extractEmails(homepage);
-        const contactEmail = pickFounderOrCtoEmail(emails);
-        const country = detectCountry(hostname, `${result.snippet} ${homepage.slice(0, 5000)}`);
-        const techStack = detectTechStack(homepage);
+        try {
+          const homepage = await fetchText(normalizedUrl);
+          const $ = cheerio.load(homepage);
+          const title = $("title").text() || result.title;
+          const hostname = hostnameFromUrl(normalizedUrl);
+          const companyName = parseCompanyName(title, hostname);
+          const emails = extractEmails(homepage);
+          const contactEmail = pickFounderOrCtoEmail(emails);
+          const country = detectCountry(hostname, `${result.snippet} ${homepage.slice(0, 5000)}`);
+          const techStack = detectTechStack(homepage);
 
-        candidates.push({
-          companyName,
-          websiteUrl: normalizedUrl,
-          contactName: null,
-          contactEmail,
-          country,
-          market: detectMarket(country),
-          techStack,
-          niche,
-          source: "google-search",
-          notes: `Discovered from Google query "${niche}".`
-        });
-      } catch {
-        // Skip domains that block scraping or fail to respond.
+          candidates.push({
+            companyName,
+            websiteUrl: normalizedUrl,
+            contactName: null,
+            contactEmail,
+            country,
+            market: detectMarket(country),
+            techStack,
+            niche,
+            source: "google-search",
+            notes: `Discovered from Google query "${searchQuery}".`
+          });
+        } catch {
+          // Skip domains that block scraping or fail to respond.
+        }
       }
     }
   }
@@ -735,9 +750,7 @@ export async function discoverProspects(
   if (sources.has("linkedin")) {
     tasks.push(fetchLinkedInProspects(normalizedFilters, limitPerNiche));
   }
-  if (sources.has("apollo")) {
-    tasks.push(fetchApolloProspects(normalizedFilters, limitPerNiche));
-  }
+  // Apollo API is intentionally disabled in free-source mode. Keep function for paid plan re-enable.
   if (sources.has("producthunt")) {
     tasks.push(discoverFromProductHunt(limitPerNiche));
   }

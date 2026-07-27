@@ -13,10 +13,12 @@ type IngestionSource = "google-search" | "linkedin" | "producthunt" | "manual";
 
 const sourceSelectionMap: Record<IngestionSource, ProspectSource[]> = {
   "google-search": ["google-search"],
-  linkedin: ["linkedin", "apollo"],
+  linkedin: ["producthunt", "google-search"],
   producthunt: ["producthunt"],
-  manual: []
+  manual: ["producthunt", "google-search"]
 };
+
+const freeDefaultSources: ProspectSource[] = ["producthunt", "google-search"];
 
 function isProspectRegion(value: string): value is ProspectRegion {
   return value === "USA" || value === "UAE";
@@ -57,6 +59,11 @@ export async function POST(request: NextRequest) {
     body.sources && body.sources.length > 0
       ? body.sources.filter(isProspectSource)
       : sourceSelectionMap[body.source ?? "google-search"];
+  const freeOnlySources = requestedSources.filter(
+    (source): source is ProspectSource =>
+      source === "google-search" || source === "producthunt"
+  );
+  const normalizedSources = freeOnlySources.length > 0 ? freeOnlySources : freeDefaultSources;
   const normalizedRegions = (body.regions ?? []).filter(isProspectRegion);
   const discoveryFilters: {
     sources: ProspectSource[];
@@ -64,30 +71,17 @@ export async function POST(request: NextRequest) {
     companySizes: string[];
     regions: ProspectRegion[];
   } = {
-    sources: requestedSources,
+    sources: normalizedSources,
     jobTitles: body.jobTitles && body.jobTitles.length > 0 ? body.jobTitles : ["Founder", "CTO", "CEO"],
     companySizes:
       body.companySizes && body.companySizes.length > 0 ? body.companySizes : ["11-50"],
     regions: normalizedRegions.length > 0 ? normalizedRegions : ["USA", "UAE"]
   };
 
-  if (requestedSources.length === 0) {
-    return NextResponse.json({
-      searchedNiches: niches,
-      discoveredCount: 0,
-      insertedCount: 0,
-      autoAuditedCount: 0,
-      leads: [],
-      audits: [],
-      filters: discoveryFilters,
-      message:
-        "Manual source selected. Use manual lead capture form to ingest records instead of automated discovery."
-    });
-  }
-
   const autoAudit = body.autoAudit ?? true;
   const auditLimit = Math.max(0, Math.min(8, body.auditLimit ?? 3));
-  const apolloRequested = requestedSources.includes("apollo");
+  const apolloRequested =
+    requestedSources.includes("apollo") || requestedSources.includes("linkedin");
 
   try {
     const discovered = await discoverProspects(
@@ -160,7 +154,7 @@ export async function POST(request: NextRequest) {
       filters: discoveryFilters,
       message:
         apolloRequested && discovered.length === 0
-          ? "Apollo returned no usable prospects. Check server logs for 403/429 details and verify API key permissions."
+          ? "Apollo/LinkedIn source is disabled on free mode. Falling back to ProductHunt + Google Search yielded no matching prospects."
           : undefined,
       leads,
       audits
