@@ -153,8 +153,10 @@ export async function POST(request: NextRequest) {
       autoAuditedCount: audits.length,
       filters: discoveryFilters,
       message:
-        apolloRequested && discovered.length === 0
-          ? "Apollo/LinkedIn source is disabled on free mode. Falling back to ProductHunt + Google Search yielded no matching prospects."
+        discovered.length === 0
+          ? apolloRequested
+            ? "Apollo/LinkedIn source is disabled on free mode. Falling back to ProductHunt + Google Search yielded no matching prospects."
+            : "No prospects found from current source run. Verify GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID and try broader query terms."
           : undefined,
       leads,
       audits
