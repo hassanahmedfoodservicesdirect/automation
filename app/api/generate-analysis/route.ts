@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       analysis,
-      shareableProposalUrl: `/p/${lead.id}`
+      shareableProposalUrl: `/audit/${lead.id}`
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate analysis.";

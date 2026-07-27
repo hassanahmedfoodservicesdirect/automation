@@ -11,6 +11,18 @@ type LeadInsightsPayload = {
 
 type LeadIngestionSource = "google-search" | "linkedin" | "producthunt" | "manual";
 
+type CompetitorBenchmarkResponse = {
+  comparisonMatrix: {
+    metric: string;
+    leadValue: string;
+    competitorValue: string;
+    winner: "lead" | "competitor" | "tie";
+  }[];
+  summary?: { headline: string };
+  lead?: { websiteUrl: string };
+  competitor?: { websiteUrl: string };
+};
+
 function hasError(payload: unknown): payload is { error?: string } {
   if (typeof payload !== "object" || payload === null) {
     return false;
@@ -41,6 +53,7 @@ const statusOptions: LeadStatus[] = [
   "outreach_sent",
   "meeting_booked",
   "proposal_sent",
+  "reviewing_proposal",
   "proposal_accepted",
   "won",
   "lost"
@@ -60,6 +73,11 @@ export default function HomePage() {
   const [dashboard, setDashboard] = useState<DataStore>(defaultDashboard);
   const [discoverQuery, setDiscoverQuery] = useState("B2B SaaS startups");
   const [discoverSource, setDiscoverSource] = useState<LeadIngestionSource>("google-search");
+  const [benchmarkLeadUrl, setBenchmarkLeadUrl] = useState("");
+  const [benchmarkCompetitorUrl, setBenchmarkCompetitorUrl] = useState("");
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+  const [benchmarkResult, setBenchmarkResult] = useState<CompetitorBenchmarkResponse | null>(null);
+  const [hiringIntentLoading, setHiringIntentLoading] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<LeadInsightsPayload | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -235,6 +253,57 @@ export default function HomePage() {
         }),
       "Lead status updated."
     );
+  }
+
+  async function runCompetitorBenchmark(): Promise<void> {
+    if (!benchmarkLeadUrl || !benchmarkCompetitorUrl) {
+      setMessage("Enter both lead URL and competitor URL to run benchmark.");
+      return;
+    }
+    setBenchmarkLoading(true);
+    setBenchmarkResult(null);
+    try {
+      const response = await fetch("/api/audit-competitor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadUrl: benchmarkLeadUrl,
+          competitorUrl: benchmarkCompetitorUrl
+        })
+      });
+      const payload = (await response.json()) as CompetitorBenchmarkResponse | { error?: string };
+      if (!response.ok || hasError(payload)) {
+        setMessage(hasError(payload) ? payload.error ?? "Benchmark failed." : "Benchmark failed.");
+        return;
+      }
+      setBenchmarkResult(payload);
+      setMessage("Competitor benchmark generated.");
+    } catch {
+      setMessage("Failed to generate competitor benchmark.");
+    } finally {
+      setBenchmarkLoading(false);
+    }
+  }
+
+  async function scrapeHiringIntentLeads(): Promise<void> {
+    setHiringIntentLoading(true);
+    await withRefresh(
+      () =>
+        fetch("/api/scrape-jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roles: [
+              "Frontend Engineer",
+              "React Developer",
+              "Performance Optimization Specialist"
+            ],
+            limitPerRole: 4
+          })
+        }),
+      "High-intent hiring leads ingested into dashboard."
+    );
+    setHiringIntentLoading(false);
   }
 
   async function openPreview(leadId: string): Promise<void> {
@@ -417,6 +486,54 @@ export default function HomePage() {
           </form>
         </article>
 
+        <article className="card span-4">
+          <h2 className="subhead">Hiring Intent Signal Scraper</h2>
+          <p className="muted">
+            Finds companies hiring Frontend/React/Performance roles and ingests them as high-intent
+            leads.
+          </p>
+          <button
+            className="primary"
+            type="button"
+            disabled={hiringIntentLoading}
+            onClick={() => void scrapeHiringIntentLeads()}
+          >
+            {hiringIntentLoading ? "Scraping job boards..." : "Ingest Hiring-Intent Leads"}
+          </button>
+        </article>
+
+        <article className="card span-4">
+          <h2 className="subhead">Competitor Benchmarking</h2>
+          <div className="stack">
+            <label>
+              Lead URL
+              <input
+                type="url"
+                placeholder="https://your-lead.com"
+                value={benchmarkLeadUrl}
+                onChange={(event) => setBenchmarkLeadUrl(event.target.value)}
+              />
+            </label>
+            <label>
+              Competitor URL
+              <input
+                type="url"
+                placeholder="https://competitor.com"
+                value={benchmarkCompetitorUrl}
+                onChange={(event) => setBenchmarkCompetitorUrl(event.target.value)}
+              />
+            </label>
+            <button
+              className="primary"
+              type="button"
+              disabled={benchmarkLoading}
+              onClick={() => void runCompetitorBenchmark()}
+            >
+              {benchmarkLoading ? "Auditing sites..." : "Run Side-by-Side Benchmark"}
+            </button>
+          </div>
+        </article>
+
         <article className="card span-8">
           <h2 className="subhead">Lead Pipeline + Live Audit Scores</h2>
           <div className="table-wrap">
@@ -512,6 +629,41 @@ export default function HomePage() {
           </div>
         </article>
 
+        <article className="card span-12">
+          <h2 className="subhead">Competitor Comparison Matrix</h2>
+          {benchmarkResult ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th>Lead</th>
+                    <th>Competitor</th>
+                    <th>Winner</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {benchmarkResult.comparisonMatrix.map((row) => (
+                    <tr key={row.metric}>
+                      <td>{row.metric}</td>
+                      <td>{row.leadValue}</td>
+                      <td>{row.competitorValue}</td>
+                      <td>{row.winner}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="muted" style={{ marginTop: "0.7rem" }}>
+                {benchmarkResult.summary?.headline ?? "Benchmark summary unavailable."}
+              </p>
+            </div>
+          ) : (
+            <p className="muted">
+              Run a competitor benchmark to compare speed score, LCP, and AI search readiness.
+            </p>
+          )}
+        </article>
+
         <article className="card span-6">
           <h2 className="subhead">Recent Live Audits</h2>
           <div className="panel-list">
@@ -571,8 +723,8 @@ export default function HomePage() {
                       <td>{lead.status.replaceAll("_", " ")}</td>
                       <td>
                         {latestAnalysisByLead.has(lead.id) ? (
-                          <a href={`/p/${lead.id}`} target="_blank" rel="noreferrer">
-                            {`/p/${lead.id}`}
+                          <a href={`/audit/${lead.id}`} target="_blank" rel="noreferrer">
+                            {`/audit/${lead.id}`}
                           </a>
                         ) : (
                           <span className="muted">Generate analysis first</span>

@@ -19,6 +19,7 @@ create table if not exists public.leads (
       'outreach_sent',
       'meeting_booked',
       'proposal_sent',
+      'reviewing_proposal',
       'proposal_accepted',
       'won',
       'lost'
@@ -30,6 +31,25 @@ create table if not exists public.leads (
   last_ux_score int,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+alter table public.leads
+drop constraint if exists leads_status_check;
+
+alter table public.leads
+add constraint leads_status_check check (
+  status in (
+    'new',
+    'audit_ready',
+    'analysis_ready',
+    'outreach_sent',
+    'meeting_booked',
+    'proposal_sent',
+    'reviewing_proposal',
+    'proposal_accepted',
+    'won',
+    'lost'
+  )
 );
 
 create table if not exists public.audits (

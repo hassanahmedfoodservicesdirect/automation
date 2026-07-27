@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
           sowClause: analysis.sowClause,
           generatedAt: analysis.generatedAt
         },
-        shareableProposalUrl: `/p/${lead.id}`
+        shareableProposalUrl: `/audit/${lead.id}`
       },
       { status: 201 }
     );

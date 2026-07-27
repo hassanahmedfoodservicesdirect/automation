@@ -7,6 +7,7 @@ const order: LeadStatus[] = [
   "outreach_sent",
   "meeting_booked",
   "proposal_sent",
+  "reviewing_proposal",
   "proposal_accepted",
   "won",
   "lost"
@@ -29,7 +30,10 @@ export function buildDashboardSummary(store: DataStore) {
     (lead) => lead.status === "meeting_booked"
   ).length;
   const proposalCount = store.leads.filter(
-    (lead) => lead.status === "proposal_sent" || lead.status === "proposal_accepted"
+    (lead) =>
+      lead.status === "proposal_sent" ||
+      lead.status === "reviewing_proposal" ||
+      lead.status === "proposal_accepted"
   ).length;
 
   const avgAuditScore =
