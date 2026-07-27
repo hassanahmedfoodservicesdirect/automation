@@ -21,6 +21,7 @@ Claude-powered analysis generation, and public proposal acceptance workflows.
 - Supabase (PostgreSQL)
 - Puppeteer + Cheerio
 - Anthropic Claude API (optional but supported)
+- Google PageSpeed Insights API (free tier)
 
 ## Setup
 
@@ -39,6 +40,7 @@ ANTHROPIC_API_KEY=... # optional, falls back to deterministic generation
 CLAUDE_MODEL=claude-3-5-sonnet-20241022 # optional
 GOOGLE_SEARCH_API_KEY=... # optional for prospecting
 GOOGLE_SEARCH_ENGINE_ID=... # optional for prospecting
+GOOGLE_PAGESPEED_API_KEY=... # optional (fallback uses GOOGLE_SEARCH_API_KEY)
 LINKEDIN_SEARCH_API_URL=... # optional custom LinkedIn lead endpoint
 LINKEDIN_API_KEY=... # optional LinkedIn endpoint auth
 APOLLO_API_KEY=... # optional Apollo people/company sourcing
@@ -69,6 +71,12 @@ Open `http://localhost:3000`
 - `POST /api/prospect-leads` — multi-channel prospect discovery + optional auto-audit
 - `POST /api/audit-website` — run deep live website audit
 - `POST /api/generate-analysis` — generate Claude analysis package from audit
+
+### Token-efficiency optimization
+- audit context keeps only title/meta, H1/H2, and max 800-char clean text
+- PageSpeed Insights metrics are fetched directly (LCP/FID/CLS/performance/mobile readiness)
+- Claude call uses strict JSON schema + `max_tokens: 800`
+- static system prompt is cache-friendly for Anthropic prompt caching
 
 ### Compatibility + downstream flows
 - `POST /api/audits` — compatibility route for auditing by lead id

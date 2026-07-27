@@ -521,6 +521,12 @@ export default function HomePage() {
                   <strong>{audit.websiteUrl}</strong>
                 </p>
                 <p>Perf {audit.performanceScore} | GEO {audit.geoScore} | UX {audit.uxScore}</p>
+                <p className="muted">
+                  Lighthouse {audit.lighthousePerformanceScore ?? "-"} | LCP{" "}
+                  {audit.lcpSec !== null ? `${audit.lcpSec}s` : "-"} | FID{" "}
+                  {audit.fidMs !== null ? `${audit.fidMs}ms` : "-"} | CLS{" "}
+                  {audit.cls !== null ? audit.cls : "-"}
+                </p>
                 <p className="muted">{audit.criticalIssues.slice(0, 2).join(" ")}</p>
               </div>
             ))}
@@ -603,6 +609,13 @@ export default function HomePage() {
                 <p>
                   <strong>{previewData.lead.companyName}</strong> · {previewData.lead.websiteUrl}
                 </p>
+                {previewData.audits[0] ? (
+                  <p className="notice">
+                    {previewData.audits[0].tokenOptimizedAudit
+                      ? "Token-Optimized Audit Generated"
+                      : "Standard audit generated"}
+                  </p>
+                ) : null}
                 <div className="code">
                   {JSON.stringify(previewData.audits[0] ?? {}, null, 2)}
                 </div>

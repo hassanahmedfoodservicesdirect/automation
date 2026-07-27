@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getLatestAuditForLead,
   getLeadById,
   getLatestAnalysisForLead,
   updateLeadStatus
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
     const phase = body.phase ?? "phase_1";
+    const latestAudit = await getLatestAuditForLead(lead.id);
     const proposal =
       phase === "phase_1"
         ? analysis.phase1Proposal
@@ -44,6 +46,16 @@ export async function POST(request: NextRequest) {
           sowClause: analysis.sowClause,
           generatedAt: analysis.generatedAt
         },
+        auditSnapshot: latestAudit
+          ? {
+              performanceScore: latestAudit.performanceScore,
+              lighthousePerformanceScore: latestAudit.lighthousePerformanceScore,
+              lcpSec: latestAudit.lcpSec,
+              fidMs: latestAudit.fidMs,
+              cls: latestAudit.cls,
+              tokenOptimizedAudit: latestAudit.tokenOptimizedAudit
+            }
+          : null,
         shareableProposalUrl: `/p/${lead.id}`
       },
       { status: 201 }

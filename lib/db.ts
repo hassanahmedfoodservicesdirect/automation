@@ -36,6 +36,17 @@ interface AuditRow {
   id: string;
   lead_id: string;
   website_url: string;
+  page_title: string | null;
+  meta_description: string | null;
+  h1_headings: string[] | null;
+  h2_headings: string[] | null;
+  condensed_text: string | null;
+  token_optimized_audit: boolean | null;
+  lighthouse_performance_score: number | null;
+  lcp_sec: number | null;
+  fid_ms: number | null;
+  cls: number | null;
+  mobile_readiness_score: number | null;
   lcp_ms: number | null;
   dom_size: number;
   load_time_ms: number | null;
@@ -115,6 +126,17 @@ function toAudit(row: AuditRow): AuditReport {
     leadId: row.lead_id,
     websiteUrl: row.website_url,
     generatedAt: row.generated_at,
+    pageTitle: row.page_title ?? "",
+    metaDescription: row.meta_description ?? "",
+    h1Headings: row.h1_headings ?? [],
+    h2Headings: row.h2_headings ?? [],
+    condensedText: row.condensed_text ?? "",
+    tokenOptimizedAudit: row.token_optimized_audit ?? false,
+    lighthousePerformanceScore: row.lighthouse_performance_score,
+    lcpSec: row.lcp_sec,
+    fidMs: row.fid_ms,
+    cls: row.cls,
+    mobileReadinessScore: row.mobile_readiness_score,
     lcpMs: row.lcp_ms,
     domSize: row.dom_size,
     loadTimeMs: row.load_time_ms,
@@ -298,6 +320,17 @@ export async function updateLeadStatus(leadId: string, status: LeadStatus): Prom
 export interface CreateAuditInput {
   leadId: string;
   websiteUrl: string;
+  pageTitle: string;
+  metaDescription: string;
+  h1Headings: string[];
+  h2Headings: string[];
+  condensedText: string;
+  tokenOptimizedAudit: boolean;
+  lighthousePerformanceScore: number | null;
+  lcpSec: number | null;
+  fidMs: number | null;
+  cls: number | null;
+  mobileReadinessScore: number | null;
   lcpMs: number | null;
   domSize: number;
   loadTimeMs: number | null;
@@ -320,6 +353,17 @@ export async function createAudit(input: CreateAuditInput): Promise<AuditReport>
     .insert({
       lead_id: input.leadId,
       website_url: input.websiteUrl,
+      page_title: input.pageTitle,
+      meta_description: input.metaDescription,
+      h1_headings: input.h1Headings,
+      h2_headings: input.h2Headings,
+      condensed_text: input.condensedText,
+      token_optimized_audit: input.tokenOptimizedAudit,
+      lighthouse_performance_score: input.lighthousePerformanceScore,
+      lcp_sec: input.lcpSec,
+      fid_ms: input.fidMs,
+      cls: input.cls,
+      mobile_readiness_score: input.mobileReadinessScore,
       lcp_ms: input.lcpMs,
       dom_size: input.domSize,
       load_time_ms: input.loadTimeMs,
