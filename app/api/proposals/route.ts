@@ -1,26 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createProposal } from "@/lib/engine";
-import { Proposal } from "@/lib/types";
-import { readStore, writeStore } from "@/lib/store";
+import {
+  getLeadById,
+  getLatestAnalysisForLead,
+  updateLeadStatus
+} from "@/lib/db";
+import { ProposalPhase } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as {
     leadId?: string;
-    phase?: Proposal["phase"];
+    phase?: ProposalPhase["phase"];
   };
   if (!body.leadId) {
     return NextResponse.json({ error: "leadId is required." }, { status: 400 });
   }
 
-  const store = await readStore();
-  const lead = store.leads.find((item) => item.id === body.leadId);
-  if (!lead) {
-    return NextResponse.json({ error: "Lead not found." }, { status: 404 });
-  }
+  try {
+    const lead = await getLeadById(body.leadId);
+    if (!lead) {
+      return NextResponse.json({ error: "Lead not found." }, { status: 404 });
+    }
+    const analysis = await getLatestAnalysisForLead(lead.id);
+    if (!analysis) {
+      return NextResponse.json(
+        { error: "Generate analysis before proposal." },
+        { status: 400 }
+      );
+    }
+    const phase = body.phase ?? "phase_1";
+    const proposal =
+      phase === "phase_1"
+        ? analysis.phase1Proposal
+        : phase === "phase_2"
+          ? analysis.phase2Proposal
+          : analysis.phase3Proposal;
 
-  const proposal = createProposal(lead, body.phase ?? "phase_1");
-  store.proposals.unshift(proposal);
-  lead.status = "proposal_sent";
-  await writeStore(store);
-  return NextResponse.json({ proposal }, { status: 201 });
+    await updateLeadStatus(lead.id, "proposal_sent");
+    return NextResponse.json(
+      {
+        proposal: {
+          leadId: lead.id,
+          ...proposal,
+          sowClause: analysis.sowClause,
+          generatedAt: analysis.generatedAt
+        },
+        shareableProposalUrl: `/p/${lead.id}`
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to build proposal.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

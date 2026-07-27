@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { buildDashboardSummary } from "@/lib/dashboard";
-import { readStore } from "@/lib/store";
+import { getDashboardData } from "@/lib/db";
 
 export async function GET() {
-  const store = await readStore();
-  const summary = buildDashboardSummary(store);
-  return NextResponse.json({ summary, ...store });
+  try {
+    const dashboard = await getDashboardData();
+    return NextResponse.json(dashboard);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load dashboard.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

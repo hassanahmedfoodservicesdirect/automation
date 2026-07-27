@@ -1,67 +1,58 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AuditReport, Lead, LeadStatus, OutreachDraft, Proposal } from "@/lib/types";
+import { AnalysisResult, AuditReport, DataStore, LeadStatus } from "@/lib/types";
 
-type Summary = {
-  totalLeads: number;
-  totalAudits: number;
-  totalOutreach: number;
-  totalProposals: number;
-  winRatePct: number;
-  meetingRatePct: number;
-  proposalRatePct: number;
-  avgAuditScore: number;
-  statusCounts: { status: LeadStatus; label: string; count: number }[];
-};
-
-type DashboardPayload = {
-  summary: Summary;
-  leads: Lead[];
+type LeadInsightsPayload = {
+  lead: DataStore["leads"][number];
   audits: AuditReport[];
-  outreach: OutreachDraft[];
-  proposals: Proposal[];
+  analyses: AnalysisResult[];
 };
 
-const defaultSummary: Summary = {
-  totalLeads: 0,
-  totalAudits: 0,
-  totalOutreach: 0,
-  totalProposals: 0,
-  winRatePct: 0,
-  meetingRatePct: 0,
-  proposalRatePct: 0,
-  avgAuditScore: 0,
-  statusCounts: []
+function hasError(payload: unknown): payload is { error?: string } {
+  if (typeof payload !== "object" || payload === null) {
+    return false;
+  }
+  return "error" in payload;
+}
+
+const defaultDashboard: DataStore = {
+  leads: [],
+  audits: [],
+  analyses: [],
+  summary: {
+    totalLeads: 0,
+    totalAudits: 0,
+    totalAnalyses: 0,
+    winRatePct: 0,
+    meetingRatePct: 0,
+    proposalRatePct: 0,
+    avgAuditScore: 0,
+    statusCounts: []
+  }
 };
 
 const statusOptions: LeadStatus[] = [
   "new",
   "audit_ready",
+  "analysis_ready",
   "outreach_sent",
   "meeting_booked",
   "proposal_sent",
+  "proposal_accepted",
   "won",
   "lost"
 ];
-
-const phaseLabels: Record<Proposal["phase"], string> = {
-  phase_1: "Phase 1 (Web/GEO Overhaul)",
-  phase_2: "Phase 2 (MVP/Refactor)",
-  phase_3: "Phase 3 (Fractional CTO)"
-};
 
 export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [workingLeadId, setWorkingLeadId] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
-  const [dashboard, setDashboard] = useState<DashboardPayload>({
-    summary: defaultSummary,
-    leads: [],
-    audits: [],
-    outreach: [],
-    proposals: []
-  });
+  const [dashboard, setDashboard] = useState<DataStore>(defaultDashboard);
+  const [discoverQuery, setDiscoverQuery] = useState("B2B SaaS startups");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<LeadInsightsPayload | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [leadForm, setLeadForm] = useState({
     companyName: "",
     website: "",
@@ -75,7 +66,11 @@ export default function HomePage() {
 
   async function fetchDashboard(): Promise<void> {
     const response = await fetch("/api/dashboard");
-    const payload = (await response.json()) as DashboardPayload;
+    const payload = (await response.json()) as DataStore | { error?: string };
+    if (!response.ok || hasError(payload)) {
+      const error = hasError(payload) ? payload.error : "Unable to load dashboard.";
+      throw new Error(error);
+    }
     setDashboard(payload);
     setLoading(false);
   }
@@ -84,8 +79,13 @@ export default function HomePage() {
     let active = true;
     fetch("/api/dashboard")
       .then((response) => response.json())
-      .then((payload: DashboardPayload) => {
+      .then((payload: DataStore | { error?: string }) => {
         if (!active) {
+          return;
+        }
+        if (hasError(payload)) {
+          setMessage(payload.error ?? "Unable to load dashboard data.");
+          setLoading(false);
           return;
         }
         setDashboard(payload);
@@ -103,10 +103,15 @@ export default function HomePage() {
     };
   }, []);
 
-  const leadsById = useMemo(
-    () => new Map(dashboard.leads.map((lead) => [lead.id, lead])),
-    [dashboard.leads]
-  );
+  const latestAnalysisByLead = useMemo(() => {
+    const map = new Map<string, AnalysisResult>();
+    for (const analysis of dashboard.analyses) {
+      if (!map.has(analysis.leadId)) {
+        map.set(analysis.leadId, analysis);
+      }
+    }
+    return map;
+  }, [dashboard.analyses]);
 
   async function withRefresh(
     action: () => Promise<Response>,
@@ -151,10 +156,15 @@ export default function HomePage() {
     });
   }
 
-  async function seedLeads(): Promise<void> {
+  async function discoverLeads(): Promise<void> {
     await withRefresh(
-      () => fetch("/api/seed", { method: "POST" }),
-      "Sample leads inserted."
+      () =>
+        fetch("/api/prospect-leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: discoverQuery, autoAudit: true, auditLimit: 3 })
+        }),
+      "Prospecting completed. New leads discovered."
     );
   }
 
@@ -162,38 +172,25 @@ export default function HomePage() {
     setWorkingLeadId(leadId);
     await withRefresh(
       () =>
-        fetch("/api/audits", {
+        fetch("/api/audit-website", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ leadId })
         }),
-      "Audit generated."
+      "Live website audit generated."
     );
   }
 
-  async function runOutreach(leadId: string, channel: OutreachDraft["channel"]) {
+  async function runAnalysis(leadId: string): Promise<void> {
     setWorkingLeadId(leadId);
     await withRefresh(
       () =>
-        fetch("/api/outreach", {
+        fetch("/api/generate-analysis", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadId, channel })
+          body: JSON.stringify({ leadId })
         }),
-      `Outreach draft generated for ${channel}.`
-    );
-  }
-
-  async function runProposal(leadId: string, phase: Proposal["phase"]) {
-    setWorkingLeadId(leadId);
-    await withRefresh(
-      () =>
-        fetch("/api/proposals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadId, phase })
-        }),
-      `Proposal created for ${phaseLabels[phase]}.`
+      "Claude-style analysis and proposal generated."
     );
   }
 
@@ -210,17 +207,38 @@ export default function HomePage() {
     );
   }
 
+  async function openPreview(leadId: string): Promise<void> {
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    setPreviewData(null);
+    try {
+      const response = await fetch(`/api/leads/${leadId}/insights`);
+      const payload = (await response.json()) as LeadInsightsPayload | { error?: string };
+      if (!response.ok || hasError(payload)) {
+        setMessage("Preview data is not available yet for this lead.");
+        setPreviewOpen(false);
+        return;
+      }
+      setPreviewData(payload);
+    } catch {
+      setMessage("Failed to load preview.");
+      setPreviewOpen(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
   return (
     <main className="page">
       <section className="hero">
         <div>
-          <h1>AI Agency Sales Engine</h1>
+          <h1>AI-Driven Prospecting & Audit Engine</h1>
           <p>
-            Complete internal product for lead pipeline, technical audits, outbound drafts,
-            and high-ticket proposal management.
+            Automated pipeline: Discover leads - Live website audit - Claude analysis -
+            Shareable proposal pages.
           </p>
         </div>
-        <span className="badge">Next.js + Claude-style workflow</span>
+        <span className="badge">Supabase + Puppeteer + Claude-ready</span>
       </section>
 
       {message ? <p className="notice">{message}</p> : null}
@@ -235,16 +253,34 @@ export default function HomePage() {
           <p className="stat-value">{loading ? "..." : dashboard.summary.totalAudits}</p>
         </article>
         <article className="card span-3">
-          <p className="muted">Outreach Drafts</p>
-          <p className="stat-value">{loading ? "..." : dashboard.summary.totalOutreach}</p>
+          <p className="muted">AI Analyses</p>
+          <p className="stat-value">{loading ? "..." : dashboard.summary.totalAnalyses}</p>
         </article>
         <article className="card span-3">
-          <p className="muted">Win Rate</p>
-          <p className="stat-value">{loading ? "..." : `${dashboard.summary.winRatePct}%`}</p>
+          <p className="muted">Avg Audit Score</p>
+          <p className="stat-value">{loading ? "..." : `${dashboard.summary.avgAuditScore}`}</p>
+        </article>
+
+        <article className="card span-12">
+          <h2 className="subhead">Automated Lead Discovery</h2>
+          <div className="button-row">
+            <input
+              style={{ minWidth: "360px", flex: 1 }}
+              value={discoverQuery}
+              onChange={(event) => setDiscoverQuery(event.target.value)}
+              placeholder="B2B SaaS startups, E-commerce brands in US/UAE..."
+            />
+            <button className="primary" type="button" onClick={() => void discoverLeads()}>
+              Discover New Leads
+            </button>
+          </div>
+          <p className="muted" style={{ marginTop: "0.6rem" }}>
+            Triggers /api/prospect-leads and auto-runs deep audits for discovered prospects.
+          </p>
         </article>
 
         <article className="card span-4">
-          <h2 className="subhead">Lead Capture</h2>
+          <h2 className="subhead">Manual Lead Capture</h2>
           <form className="stack" onSubmit={submitLead}>
             <label>
               Company Name
@@ -293,7 +329,6 @@ export default function HomePage() {
             <label>
               Contact Email
               <input
-                required
                 type="email"
                 value={leadForm.contactEmail}
                 onChange={(event) =>
@@ -303,24 +338,10 @@ export default function HomePage() {
             </label>
             <label>
               Niche
-              <select
+              <input
                 value={leadForm.niche}
                 onChange={(event) =>
                   setLeadForm((current) => ({ ...current, niche: event.target.value }))
-                }
-              >
-                <option value="saas">SaaS</option>
-                <option value="ecommerce">E-commerce</option>
-                <option value="healthcare">Healthcare</option>
-                <option value="consulting">Consulting</option>
-              </select>
-            </label>
-            <label>
-              Source
-              <input
-                value={leadForm.source}
-                onChange={(event) =>
-                  setLeadForm((current) => ({ ...current, source: event.target.value }))
                 }
               />
             </label>
@@ -333,25 +354,23 @@ export default function HomePage() {
                 }
               />
             </label>
-            <div className="button-row">
-              <button className="primary" type="submit">
-                Add Lead
-              </button>
-              <button className="ghost" type="button" onClick={() => void seedLeads()}>
-                Insert Sample Leads
-              </button>
-            </div>
+            <button className="primary" type="submit">
+              Add Lead
+            </button>
           </form>
         </article>
 
         <article className="card span-8">
-          <h2 className="subhead">Pipeline Control Center</h2>
+          <h2 className="subhead">Lead Pipeline + Live Audit Scores</h2>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Company</th>
                   <th>Contact</th>
+                  <th>Perf</th>
+                  <th>GEO</th>
+                  <th>UX</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -359,8 +378,8 @@ export default function HomePage() {
               <tbody>
                 {dashboard.leads.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="muted">
-                      No leads yet. Add a lead or seed sample data.
+                    <td colSpan={7} className="muted">
+                      No leads available yet.
                     </td>
                   </tr>
                 ) : (
@@ -371,17 +390,18 @@ export default function HomePage() {
                         <td>
                           <strong>{lead.companyName}</strong>
                           <br />
-                          <span className="muted">{lead.website}</span>
+                          <span className="muted">{lead.websiteUrl}</span>
                         </td>
                         <td>
                           {lead.contactName || "Unknown"}
                           <br />
-                          <span className="muted">{lead.contactEmail}</span>
+                          <span className="muted">{lead.contactEmail ?? "No public email"}</span>
                         </td>
+                        <td>{lead.lastPerfScore ?? "-"}</td>
+                        <td>{lead.lastGeoScore ?? "-"}</td>
+                        <td>{lead.lastUxScore ?? "-"}</td>
                         <td>
-                          <span
-                            className={`pill status-${lead.status.replaceAll("_", "-")}`}
-                          >
+                          <span className={`pill status-${lead.status.replaceAll("_", "-")}`}>
                             {lead.status.replaceAll("_", " ")}
                           </span>
                         </td>
@@ -399,17 +419,17 @@ export default function HomePage() {
                               type="button"
                               className="ghost"
                               disabled={isWorking}
-                              onClick={() => void runOutreach(lead.id, "email")}
+                              onClick={() => void runAnalysis(lead.id)}
                             >
-                              Outreach
+                              Generate AI Pack
                             </button>
                             <button
                               type="button"
                               className="ghost"
                               disabled={isWorking}
-                              onClick={() => void runProposal(lead.id, "phase_1")}
+                              onClick={() => void openPreview(lead.id)}
                             >
-                              Proposal
+                              Preview
                             </button>
                             <select
                               disabled={isWorking}
@@ -436,78 +456,71 @@ export default function HomePage() {
         </article>
 
         <article className="card span-6">
-          <h2 className="subhead">Recent Audits</h2>
+          <h2 className="subhead">Recent Live Audits</h2>
           <div className="panel-list">
-            {dashboard.audits.slice(0, 5).map((audit) => {
-              const lead = leadsById.get(audit.leadId);
-              return (
-                <div key={audit.id} className="panel-item">
-                  <p>
-                    <strong>{lead?.companyName ?? "Unknown lead"}</strong>
-                  </p>
-                  <p className="muted">{audit.criticalIssue}</p>
-                  <p>
-                    Perf {audit.performanceScore} | GEO {audit.geoScore} | UX {audit.uxScore}
-                  </p>
-                  <div className="code">{audit.oneLinerPitch}</div>
-                </div>
-              );
-            })}
-            {dashboard.audits.length === 0 ? (
-              <p className="muted">No audits yet.</p>
-            ) : null}
+            {dashboard.audits.slice(0, 5).map((audit) => (
+              <div key={audit.id} className="panel-item">
+                <p>
+                  <strong>{audit.websiteUrl}</strong>
+                </p>
+                <p>Perf {audit.performanceScore} | GEO {audit.geoScore} | UX {audit.uxScore}</p>
+                <p className="muted">{audit.criticalIssues.slice(0, 2).join(" ")}</p>
+              </div>
+            ))}
+            {dashboard.audits.length === 0 ? <p className="muted">No audits yet.</p> : null}
           </div>
         </article>
 
         <article className="card span-6">
-          <h2 className="subhead">Recent Outreach Drafts</h2>
+          <h2 className="subhead">Recent AI Analysis Packs</h2>
           <div className="panel-list">
-            {dashboard.outreach.slice(0, 5).map((draft) => {
-              const lead = leadsById.get(draft.leadId);
-              return (
-                <div key={draft.id} className="panel-item">
-                  <p>
-                    <strong>{lead?.companyName ?? "Unknown lead"}</strong> · {draft.channel}
-                  </p>
-                  <p className="muted">{draft.subject}</p>
-                  <div className="code">{`${draft.body}\n\n${draft.cta}`}</div>
-                </div>
-              );
-            })}
-            {dashboard.outreach.length === 0 ? (
-              <p className="muted">No outreach drafts yet.</p>
+            {dashboard.analyses.slice(0, 5).map((analysis) => (
+              <div key={analysis.id} className="panel-item">
+                <p>
+                  <strong>{analysis.coldEmailSubject}</strong>
+                </p>
+                <p className="muted">{analysis.businessImpact}</p>
+                <div className="code">{analysis.linkedinDm}</div>
+              </div>
+            ))}
+            {dashboard.analyses.length === 0 ? (
+              <p className="muted">No AI analysis generated yet.</p>
             ) : null}
           </div>
         </article>
 
         <article className="card span-12">
-          <h2 className="subhead">Recent Proposals (with Scope-Creep Protection)</h2>
+          <h2 className="subhead">Shareable Client Proposal Links</h2>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Lead</th>
-                  <th>Phase</th>
-                  <th>Timeline</th>
-                  <th>Price</th>
-                  <th>Clause</th>
+                  <th>Company</th>
+                  <th>Status</th>
+                  <th>Proposal Link</th>
                 </tr>
               </thead>
               <tbody>
-                {dashboard.proposals.length === 0 ? (
+                {dashboard.leads.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="muted">
-                      No proposals generated yet.
+                    <td colSpan={3} className="muted">
+                      No leads yet.
                     </td>
                   </tr>
                 ) : (
-                  dashboard.proposals.slice(0, 8).map((proposal) => (
-                    <tr key={proposal.id}>
-                      <td>{leadsById.get(proposal.leadId)?.companyName ?? "Unknown lead"}</td>
-                      <td>{phaseLabels[proposal.phase]}</td>
-                      <td>{proposal.estimatedTimeline}</td>
-                      <td>{proposal.priceRange}</td>
-                      <td>{proposal.sowClause}</td>
+                  dashboard.leads.map((lead) => (
+                    <tr key={`${lead.id}-share`}>
+                      <td>{lead.companyName}</td>
+                      <td>{lead.status.replaceAll("_", " ")}</td>
+                      <td>
+                        {latestAnalysisByLead.has(lead.id) ? (
+                          <a href={`/p/${lead.id}`} target="_blank" rel="noreferrer">
+                            {`/p/${lead.id}`}
+                          </a>
+                        ) : (
+                          <span className="muted">Generate analysis first</span>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -516,6 +529,36 @@ export default function HomePage() {
           </div>
         </article>
       </section>
+
+      {previewOpen ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <div className="button-row" style={{ justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0 }}>Generated Audit / Outreach / Proposal Preview</h3>
+              <button className="ghost" type="button" onClick={() => setPreviewOpen(false)}>
+                Close
+              </button>
+            </div>
+            {previewLoading ? (
+              <p className="muted">Loading preview...</p>
+            ) : previewData ? (
+              <div className="stack">
+                <p>
+                  <strong>{previewData.lead.companyName}</strong> · {previewData.lead.websiteUrl}
+                </p>
+                <div className="code">
+                  {JSON.stringify(previewData.audits[0] ?? {}, null, 2)}
+                </div>
+                <div className="code">
+                  {JSON.stringify(previewData.analyses[0] ?? {}, null, 2)}
+                </div>
+              </div>
+            ) : (
+              <p className="muted">No preview data yet.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

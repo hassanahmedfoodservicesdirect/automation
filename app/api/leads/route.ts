@@ -1,37 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Lead } from "@/lib/types";
-import { generateId, readStore, writeStore } from "@/lib/store";
+import { createLead, getLeads } from "@/lib/db";
 
 export async function GET() {
-  const store = await readStore();
-  return NextResponse.json({ leads: store.leads });
+  try {
+    const leads = await getLeads();
+    return NextResponse.json({ leads });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load leads.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as Partial<Lead>;
-  if (!body.companyName || !body.website || !body.contactEmail) {
+  const body = (await request.json()) as {
+    companyName?: string;
+    website?: string;
+    market?: "US" | "UAE" | "Other";
+    contactName?: string;
+    contactEmail?: string;
+    niche?: string;
+    source?: string;
+    notes?: string;
+  };
+  if (!body.companyName || !body.website) {
     return NextResponse.json(
-      { error: "companyName, website, and contactEmail are required." },
+      { error: "companyName and website are required." },
       { status: 400 }
     );
   }
 
-  const store = await readStore();
-  const lead: Lead = {
-    id: generateId("lead"),
-    companyName: body.companyName,
-    website: body.website,
-    market: body.market ?? "US",
-    contactName: body.contactName ?? "",
-    contactEmail: body.contactEmail,
-    niche: body.niche ?? "saas",
-    source: body.source ?? "manual",
-    status: "new",
-    notes: body.notes ?? "",
-    createdAt: new Date().toISOString()
-  };
-
-  store.leads.unshift(lead);
-  await writeStore(store);
-  return NextResponse.json({ lead }, { status: 201 });
+  try {
+    const lead = await createLead({
+      companyName: body.companyName,
+      websiteUrl: body.website,
+      market: body.market ?? "US",
+      contactName: body.contactName ?? null,
+      contactEmail: body.contactEmail ?? null,
+      niche: body.niche ?? "saas",
+      source: body.source ?? "manual",
+      notes: body.notes ?? null
+    });
+    return NextResponse.json({ lead }, { status: 201 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create lead.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
