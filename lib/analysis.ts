@@ -27,8 +27,18 @@ interface LeanClaudeOutput {
 const defaultSowClause =
   "Any functionality outside the agreed SRS/Figma design will be billed at an architectural hourly rate of $85/hr.";
 
+const linkedInDmMaxChars = 300;
+
 const SYSTEM_PROMPT =
   'You are a Senior Software Architect. Analyze the provided condensed metrics and output JSON only.\nReturn EXACTLY this JSON structure:\n{\n  "flaws": ["Technical issue 1 with impact", "Technical issue 2"],\n  "impact": "1-sentence estimated loss on conversions/leads",\n  "email": "3-sentence hyper-personalized cold email referencing specific site flaws",\n  "loomScript": ["Bullet 1 for 3-min video", "Bullet 2", "Bullet 3"]\n}\nKeep answers ultra-concise, technical, direct, and non-fluffy. Output strict JSON only without markdown wrappers.';
+
+function normalizeLinkedInDm(message: string): string {
+  const compact = message.replace(/\s+/g, " ").trim();
+  if (compact.length <= linkedInDmMaxChars) {
+    return compact;
+  }
+  return `${compact.slice(0, linkedInDmMaxChars - 1).trimEnd()}…`;
+}
 
 function defaultProposal(phase: ProposalPhase["phase"]): ProposalPhase {
   if (phase === "phase_1") {
@@ -199,7 +209,7 @@ export async function generateAnalysis(lead: Lead, audit: AuditReport): Promise<
     businessImpact: parsed.impact,
     coldEmailSubject,
     coldEmailBody: parsed.email,
-    linkedinDm: parsed.email.slice(0, 600),
+    linkedinDm: normalizeLinkedInDm(parsed.email),
     loomScript,
     phase1Proposal: defaultProposal("phase_1"),
     phase2Proposal: defaultProposal("phase_2"),
