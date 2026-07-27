@@ -194,27 +194,67 @@ async function searchWithGoogle(query: string): Promise<SearchResult[]> {
 }
 
 async function searchWithDuckDuckGo(query: string): Promise<SearchResult[]> {
-  const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const html = await fetchText(url);
+  const $ = cheerio.load(html);
+
+  function resolveDuckDuckGoHref(href: string): string {
+    if (href.startsWith("http://") || href.startsWith("https://")) {
+      return href;
+    }
+    if (href.startsWith("//")) {
+      return `https:${href}`;
+    }
+    if (href.startsWith("/l/?")) {
+      const localUrl = new URL(`https://duckduckgo.com${href}`);
+      const uddg = localUrl.searchParams.get("uddg");
+      if (uddg) {
+        try {
+          return decodeURIComponent(uddg);
+        } catch {
+          return uddg;
+        }
+      }
+    }
+    return href;
+  }
+
+  const results: SearchResult[] = [];
+  const titleNodes = $("a.result__a, a[data-testid='result-title-a'], h2.result__title a");
+  titleNodes.each((_, element) => {
+    const title = cleanText($(element).text());
+    const href = $(element).attr("href");
+    const container =
+      $(element).closest(".result") || $(element).closest("article") || $(element).parent();
+    const snippet = cleanText(
+      container.find(".result__snippet, .result-snippet, [data-result='snippet']").text() ?? ""
+    );
+    if (!href || !title) {
+      return;
+    }
+
+    const resolved = resolveDuckDuckGoHref(href);
+    results.push({ title, link: resolved, snippet });
+  });
+
+  return results.slice(0, 12);
+}
+
+async function searchWithBing(query: string): Promise<SearchResult[]> {
+  const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
   const html = await fetchText(url);
   const $ = cheerio.load(html);
 
   const results: SearchResult[] = [];
-  $("a.result__a").each((_, element) => {
-    const title = $(element).text().trim();
-    const href = $(element).attr("href");
-    const snippet =
-      $(element).closest(".result").find(".result__snippet").text().trim() ?? "";
-    if (!href) {
+  $("li.b_algo h2 a").each((_, element) => {
+    const title = cleanText($(element).text());
+    const href = cleanText($(element).attr("href") ?? "");
+    const snippet = cleanText($(element).closest("li.b_algo").find("p").first().text());
+    if (!title || !href) {
       return;
     }
-
-    let resolved = href;
-    if (href.startsWith("//")) {
-      resolved = `https:${href}`;
-    }
-    results.push({ title, link: resolved, snippet });
+    results.push({ title, link: href, snippet });
   });
-
   return results.slice(0, 12);
 }
 
@@ -224,10 +264,34 @@ async function collectSearchResults(query: string): Promise<SearchResult[]> {
     if (google.length > 0) {
       return google;
     }
-  } catch {
-    // Fall back to DuckDuckGo when Google API credentials are unavailable or failing.
+  } catch (error) {
+    console.warn("[prospecting][google-search] query failed, trying free fallback", {
+      query,
+      error: error instanceof Error ? error.message : "Unknown Google search error"
+    });
   }
-  return searchWithDuckDuckGo(query);
+
+  try {
+    const duckDuckGo = await searchWithDuckDuckGo(query);
+    if (duckDuckGo.length > 0) {
+      return duckDuckGo;
+    }
+  } catch (error) {
+    console.warn("[prospecting][duckduckgo] query failed, trying bing fallback", {
+      query,
+      error: error instanceof Error ? error.message : "Unknown DuckDuckGo search error"
+    });
+  }
+
+  try {
+    return await searchWithBing(query);
+  } catch (error) {
+    console.warn("[prospecting][bing] query failed", {
+      query,
+      error: error instanceof Error ? error.message : "Unknown Bing search error"
+    });
+    return [];
+  }
 }
 
 function detectCountryFromRegionLabel(regionLabel: string | null): string {
@@ -670,6 +734,18 @@ async function discoverFromProductHunt(limit: number): Promise<ProspectLeadCandi
   return collected;
 }
 
+function buildSaasSearchQueries(niche: string): string[] {
+  const cleaned = cleanText(niche);
+  const baseQueries = [
+    cleaned,
+    `"${cleaned}" "get started"`,
+    `"${cleaned}" "pricing"`,
+    `"B2B SaaS" "get started"`,
+    `"SaaS startup" "pricing"`
+  ];
+  return unique(baseQueries.filter((query) => query.length > 0));
+}
+
 async function discoverFromGoogleSearch(
   niches: string[],
   limitPerNiche: number
@@ -677,43 +753,61 @@ async function discoverFromGoogleSearch(
   const candidates: ProspectLeadCandidate[] = [];
 
   for (const niche of niches) {
-    const results = await collectSearchResults(niche);
-    const dedupedResults = unique(results.map((result) => result.link))
-      .slice(0, limitPerNiche)
-      .map((link) => results.find((item) => item.link === link))
-      .filter((value): value is SearchResult => Boolean(value));
+    const queryVariants = buildSaasSearchQueries(niche);
+    for (const searchQuery of queryVariants) {
+      const results = await collectSearchResults(searchQuery);
+      const dedupedResults = unique(results.map((result) => result.link))
+        .slice(0, limitPerNiche)
+        .map((link) => results.find((item) => item.link === link))
+        .filter((value): value is SearchResult => Boolean(value));
 
-    for (const result of dedupedResults) {
-      const normalizedUrl = normalizeWebsiteUrl(result.link);
-      if (!normalizedUrl) {
-        continue;
-      }
+      for (const result of dedupedResults) {
+        const normalizedUrl = normalizeWebsiteUrl(result.link);
+        if (!normalizedUrl) {
+          continue;
+        }
 
-      try {
-        const homepage = await fetchText(normalizedUrl);
-        const $ = cheerio.load(homepage);
-        const title = $("title").text() || result.title;
-        const hostname = hostnameFromUrl(normalizedUrl);
-        const companyName = parseCompanyName(title, hostname);
-        const emails = extractEmails(homepage);
-        const contactEmail = pickFounderOrCtoEmail(emails);
-        const country = detectCountry(hostname, `${result.snippet} ${homepage.slice(0, 5000)}`);
-        const techStack = detectTechStack(homepage);
-
-        candidates.push({
-          companyName,
+        const searchOnlyCountry = detectCountry(result.link, result.snippet);
+        const searchOnlyCandidate: ProspectLeadCandidate = {
+          companyName: parseCompanyName(result.title, hostnameFromUrl(normalizedUrl)),
           websiteUrl: normalizedUrl,
           contactName: null,
-          contactEmail,
-          country,
-          market: detectMarket(country),
-          techStack,
+          contactEmail: null,
+          country: searchOnlyCountry,
+          market: detectMarket(searchOnlyCountry),
+          techStack: [],
           niche,
           source: "google-search",
-          notes: `Discovered from Google query "${niche}".`
-        });
-      } catch {
-        // Skip domains that block scraping or fail to respond.
+          notes: `Discovered from Google query "${searchQuery}" (metadata-only capture).`
+        };
+
+        try {
+          const homepage = await fetchText(normalizedUrl);
+          const $ = cheerio.load(homepage);
+          const title = $("title").text() || result.title;
+          const hostname = hostnameFromUrl(normalizedUrl);
+          const companyName = parseCompanyName(title, hostname);
+          const emails = extractEmails(homepage);
+          const contactEmail = pickFounderOrCtoEmail(emails);
+          const country = detectCountry(hostname, `${result.snippet} ${homepage.slice(0, 5000)}`);
+          const techStack = detectTechStack(homepage);
+
+          candidates.push({
+            companyName,
+            websiteUrl: normalizedUrl,
+            contactName: null,
+            contactEmail,
+            country,
+            market: detectMarket(country),
+            techStack,
+            niche,
+            source: "google-search",
+            notes: `Discovered from Google query "${searchQuery}".`
+          });
+        } catch {
+          // Preserve result metadata even when the destination site blocks scraping.
+          candidates.push(searchOnlyCandidate);
+        }
       }
     }
   }
@@ -735,9 +829,7 @@ export async function discoverProspects(
   if (sources.has("linkedin")) {
     tasks.push(fetchLinkedInProspects(normalizedFilters, limitPerNiche));
   }
-  if (sources.has("apollo")) {
-    tasks.push(fetchApolloProspects(normalizedFilters, limitPerNiche));
-  }
+  // Apollo API is intentionally disabled in free-source mode. Keep function for paid plan re-enable.
   if (sources.has("producthunt")) {
     tasks.push(discoverFromProductHunt(limitPerNiche));
   }
