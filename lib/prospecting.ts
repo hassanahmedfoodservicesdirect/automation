@@ -290,15 +290,36 @@ async function searchWithBing(query: string): Promise<SearchResult[]> {
   const html = await fetchText(url);
   const $ = cheerio.load(html);
 
+  function resolveBingHref(href: string): string {
+    try {
+      const parsed = new URL(href);
+      if (parsed.hostname.endsWith("bing.com")) {
+        const wrapped = parsed.searchParams.get("u");
+        if (wrapped && wrapped.startsWith("a1")) {
+          const b64 = wrapped.slice(2).replace(/-/g, "+").replace(/_/g, "/");
+          const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+          const decoded = Buffer.from(`${b64}${pad}`, "base64").toString("utf8");
+          if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+            return decoded;
+          }
+        }
+      }
+      return href;
+    } catch {
+      return href;
+    }
+  }
+
   const results: SearchResult[] = [];
   $("li.b_algo h2 a").each((_, element) => {
     const title = cleanText($(element).text());
     const href = cleanText($(element).attr("href") ?? "");
+    const resolvedHref = resolveBingHref(href);
     const snippet = cleanText($(element).closest("li.b_algo").find("p").first().text());
-    if (!title || !href) {
+    if (!title || !resolvedHref) {
       return;
     }
-    results.push({ title, link: href, snippet });
+    results.push({ title, link: resolvedHref, snippet });
   });
   return results.slice(0, 12);
 }
