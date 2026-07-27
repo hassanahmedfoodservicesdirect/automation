@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
 
   const autoAudit = body.autoAudit ?? true;
   const auditLimit = Math.max(0, Math.min(8, body.auditLimit ?? 3));
+  const apolloRequested = requestedSources.includes("apollo");
 
   try {
     const discovered = await discoverProspects(
@@ -157,6 +158,10 @@ export async function POST(request: NextRequest) {
       insertedCount: leads.length,
       autoAuditedCount: audits.length,
       filters: discoveryFilters,
+      message:
+        apolloRequested && discovered.length === 0
+          ? "Apollo returned no usable prospects. Check server logs for 403/429 details and verify API key permissions."
+          : undefined,
       leads,
       audits
     });
